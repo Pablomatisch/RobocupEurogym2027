@@ -23,7 +23,7 @@ fd = port.C
 motor_pair.pair(motor_pair.PAIR_1, lm, rm)
 
 #define important values
-blackReflection = 80
+blackReflection = 75
 whiteReflection = 100
 wheel_diameter = 5.2
 ReflectionTreshold = (blackReflection + whiteReflection)/2
@@ -204,29 +204,30 @@ async def checkForObstacles():
     """ Checks if there are obstacles in front of the robot and maneuvers around. """
 
 #check the forward distance for any obstacle
-    if distance_sensor.distance(fd) < 45 and distance_sensor.distance(fd) is not -1:
+    if distance_sensor.distance(fd) < 35 and distance_sensor.distance(fd) is not -1:
         print("detected object")
-        distance_to_object = 20
         #stop all movement
         stopMotors()
         #then turn to the right
         await rotate_degrees(-90)
         #drive forward
-        await drive_straight(20)
+        await drive_straight(25)
         #turn back
-        await rotate_degrees(90)
+        await rotate_degrees(86)
         #then drive forward and turn back once a while to check if reached the end of the obstacle and then end the cycle
         while True:
-            await drive_straight(distance_to_object)
+            await drive_straight(20)
             await rotate_degrees(90)
             await drive_straight(-1)
             await drive_straight(1)
             if distance_sensor.distance(fd) > 200:
                 break
-            distance_to_object = distance_to_object / 2
             await rotate_degrees(-90)
-        await drive_straight(18)
-        await rotate_degrees(-80)
+        await rotate_degrees(-90)
+        await drive_straight(15)
+        await rotate_degrees(90)
+        await drive_straight(20)
+        await rotate_degrees(-85)
         setMotorsStraightForward()
 
 async def correctLinePath():
