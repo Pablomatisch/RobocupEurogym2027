@@ -23,52 +23,57 @@ fd = port.C
 motor_pair.pair(motor_pair.PAIR_1, lm, rm)
 
 #define important values
-blackReflection = 75
-whiteReflection = 100
-wheel_diameter = 5.2
-ReflectionTreshold = (blackReflection + whiteReflection)/2
+black_reflection = 75
+white_reflection = 100
+WHEEL_DIAMETER = 5.2
+REFLECTION_TRESHOLD = (black_reflection + white_reflection)/2
+last_color_right = "white"
+last_color_left = "white"
+
+TURN_180_TIME = 2.3
+OBSTACLE_DISTANCE = 35
+CLEAR_DISTANCE = 200
+
 #set speeds
-speedStraightForward = 230
-speedTurnHigh = 220
-speedTurnLow = 240
-#important values
-lastColorRight = "white"
-lastColorLeft = "white"
+SPEED_STRAIGHT_FORWARD = 230
+SPEED_TURN_HIGH = 220
+SPEED_TURN_LOW = 240
 
 
-def colorIsBlack(port: int):
-    return color_sensor.reflection(port) < ReflectionTreshold
 
-def colorIsWhite(port: int):
-    return color_sensor.reflection(port) > ReflectionTreshold
+def color_is_black(port: int):
+    return color_sensor.reflection(port) < REFLECTION_TRESHOLD
 
-def stopMotors():
+def color_is_white(port: int):
+    return color_sensor.reflection(port) > REFLECTION_TRESHOLD
+
+def stop_motors():
     """
     Stops all current motor activity using the motor module
     """
     motor.stop(lm)
     motor.stop(rm)
 
-def setMotorsStraightForward():
+def set_motors_straight_forward():
     """
     Sets the motors to drive straight ahead using the motor module
     """
-    motor.run(lm, -(speedStraightForward))
-    motor.run(rm, speedStraightForward)
+    motor.run(lm, -(SPEED_STRAIGHT_FORWARD))
+    motor.run(rm, SPEED_STRAIGHT_FORWARD)
 
-def setMotorsTurnRight():
+def set_motors_turn_right():
     """
     Sets the motors to a right turn using the motor module
     """
-    motor.run(lm, -(speedTurnHigh))
-    motor.run(rm, -(speedTurnLow))
+    motor.run(lm, -(SPEED_TURN_HIGH))
+    motor.run(rm, -(SPEED_TURN_LOW))
 
-def setMotorsTurnLeft():
+def set_motors_turn_left():
     """
     Sets the motors to a left turn using the motor module
     """
-    motor.run(lm, speedTurnLow)
-    motor.run(rm, speedTurnHigh)
+    motor.run(lm, SPEED_TURN_LOW)
+    motor.run(rm, SPEED_TURN_HIGH)
 
 def deg_for_distance(distance_cm: float, wheel_diameter_cm: float) -> int:
     """Convert distance in cm to motor rotation degrees."""
@@ -77,8 +82,8 @@ def deg_for_distance(distance_cm: float, wheel_diameter_cm: float) -> int:
 
 
 async def drive_straight(distance_cm: float,
-                        velocity: int = speedStraightForward,
-                        wheel_diameter_cm: float = wheel_diameter,
+                        velocity: int = SPEED_STRAIGHT_FORWARD,
+                        wheel_diameter_cm: float = WHEEL_DIAMETER,
                         kp: float = 2.0,
                         step_deg: int = 60):
     """
@@ -100,27 +105,27 @@ async def drive_straight(distance_cm: float,
     motor.reset_relative_position(lm, 0)
 
     target_degrees = deg_for_distance(abs(distance_cm), wheel_diameter_cm)
-    isDirectionForward = distance_cm * velocity
-    if (isDirectionForward > 0):
-        isDirectionForward = 1
+    direction_forward_multiplicator = distance_cm * velocity
+    if (direction_forward_multiplicator > 0):
+        direction_forward_multiplicator = 1
     else:
-        isDirectionForward = -1
+        direction_forward_multiplicator = -1
 
     moved_degrees = 0
 
     while moved_degrees < target_degrees:
         # SPIKE 3: tilt_angles()[0] gives yaw in deci-degrees with inverted sign
         yaw_deg = motion_sensor.tilt_angles()[0] * -0.1
-        error = 0 - (yaw_deg * isDirectionForward)
+        error = 0 - (yaw_deg * direction_forward_multiplicator)
         steer = int(max(-100, min(100, kp * error)))# Clamp steering between -100 and 100
 
         # move forward an set new steering correction
-        motor_pair.move(motor_pair.PAIR_1, steer, velocity=abs(velocity)*isDirectionForward)
+        motor_pair.move(motor_pair.PAIR_1, steer, velocity=abs(velocity)*direction_forward_multiplicator)
         moved_degrees = abs(motor.relative_position(lm))
 
     motor_pair.stop(motor_pair.PAIR_1)
 
-async def rotate_degrees(rotate_degrees: float, velocity: int = speedStraightForward):
+async def rotate_degrees(rotate_degrees: float, velocity: int = SPEED_STRAIGHT_FORWARD):
     """
     Turns the robot for a several degrees.
     Args:
@@ -128,7 +133,7 @@ async def rotate_degrees(rotate_degrees: float, velocity: int = speedStraightFor
     """
     # Reset the gyro
     motion_sensor.reset_yaw(0)
-    steer = -100;
+    steer = -100
     if (rotate_degrees < 0):
         steer = -steer
     rotated_degrees = 0
@@ -141,73 +146,73 @@ async def rotate_degrees(rotate_degrees: float, velocity: int = speedStraightFor
     print("rotated", rotate_degrees, "degrees")
     motor_pair.stop(motor_pair.PAIR_1)
 
-def updateLastColors():
+def update_last_colors():
     """ Checks and updates the last seen color of the left and right color sensors. """
-    global lastColorRight
-    global lastColorLeft
+    global last_color_right
+    global last_color_left
     #save the last color the right sensor sees
-    if (colorIsBlack(rc) and (lastColorRight != "black") and lastColorRight != "green" and color_sensor.color(rc) != color.GREEN):
-        lastColorRight = "black"
-    if (colorIsWhite(rc) and (lastColorRight != "white") and color_sensor.color(rc) != color.GREEN):
-        lastColorRight = "white"
-    if (lastColorRight != "green") and color_sensor.color(rc) == color.GREEN:
-        lastColorRight = "green"
+    if (color_is_black(rc) and (last_color_right != "black") and last_color_right != "green" and color_sensor.color(rc) != color.GREEN):
+        last_color_right = "black"
+    if (color_is_white(rc) and (last_color_right != "white") and color_sensor.color(rc) != color.GREEN):
+        last_color_right = "white"
+    if (last_color_right != "green") and color_sensor.color(rc) == color.GREEN:
+        last_color_right = "green"
 
     #save the last color the left sensor sees
-    if (colorIsBlack(lc) and (lastColorLeft != "black") and lastColorLeft != "green" and color_sensor.color(lc) != color.GREEN):
-        lastColorLeft = "black"
-    if (colorIsWhite(lc) and (lastColorLeft != "white") and color_sensor.color(lc) != color.GREEN):
-        lastColorLeft = "white"
-    if ((lastColorLeft != "green") and color_sensor.color(lc) == color.GREEN):
-        lastColorLeft = "green"
+    if (color_is_black(lc) and (last_color_left != "black") and last_color_left != "green" and color_sensor.color(lc) != color.GREEN):
+        last_color_left = "black"
+    if (color_is_white(lc) and (last_color_left != "white") and color_sensor.color(lc) != color.GREEN):
+        last_color_left = "white"
+    if ((last_color_left != "green") and color_sensor.color(lc) == color.GREEN):
+        last_color_left = "green"
 
-def checkForTurns():
+def check_for_turns():
     """
     Checks for any green markings on the ground and lets the robot turn in the right direction if they follow up to white
 
     Attention: Requires the updateLastColor() function to be run in immediate advance in order to work properly
     """
-    global lastColorLeft
-    global lastColorRight
+    global last_color_left
+    global last_color_right
     #check colors on the ground in case there is a turn
     if color_sensor.color(lc) == color.GREEN and color_sensor.color(rc) == color.GREEN:
         print("did a full turn")
-        lastColorRight = "green"
-        lastColorLeft = "green"
-        setMotorsTurnRight()
-        sleep(2.3)
-        setMotorsStraightForward()
+        last_color_right = "green"
+        last_color_left = "green"
+        set_motors_turn_right()
+        sleep(TURN_180_TIME)
+        set_motors_straight_forward()
         sleep(0.2)
-        setMotorsTurnRight()
+        set_motors_turn_right()
 
     #turn right if green follows directly to white
-    if colorIsBlack(rc) and lastColorRight != "black":
-        if lastColorRight == "green":
+    if color_is_black(rc) and last_color_right != "black":
+        if last_color_right == "green":
             print("turned right")
-            setMotorsTurnRight()
+            set_motors_turn_right()
             sleep(0.3)
-            setMotorsStraightForward()
+            set_motors_straight_forward()
             sleep(0.3)
-            lastColorRight = "green"
+            last_color_right = "green"
         
     #turn right if green follows directly to white
-    if colorIsBlack(lc) and lastColorLeft != "black":
-        if lastColorLeft == "green":
+    if color_is_black(lc) and last_color_left != "black":
+        if last_color_left == "green":
             print("turned left")
-            setMotorsTurnLeft()
+            set_motors_turn_left()
             sleep(0.3)
-            setMotorsStraightForward()
+            set_motors_straight_forward()
             sleep(0.3)
-            lastColorLeft = "black"
+            last_color_left = "black"
 
-async def checkForObstacles():
+async def check_for_obstacles():
     """ Checks if there are obstacles in front of the robot and maneuvers around. """
 
 #check the forward distance for any obstacle
-    if distance_sensor.distance(fd) < 35 and distance_sensor.distance(fd) is not -1:
+    if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
         print("detected object")
         #stop all movement
-        stopMotors()
+        stop_motors()
         #then turn to the right
         await rotate_degrees(-90)
         #drive forward
@@ -220,7 +225,7 @@ async def checkForObstacles():
             await rotate_degrees(90)
             await drive_straight(-1)
             await drive_straight(1)
-            if distance_sensor.distance(fd) > 200:
+            if distance_sensor.distance(fd) > CLEAR_DISTANCE:
                 break
             await rotate_degrees(-90)
         await rotate_degrees(-90)
@@ -228,9 +233,9 @@ async def checkForObstacles():
         await rotate_degrees(90)
         await drive_straight(20)
         await rotate_degrees(-85)
-        setMotorsStraightForward()
+        set_motors_straight_forward()
 
-async def correctLinePath():
+async def correct_line_path():
     """
     Corrects the current path of the robot to continue following the black line
 
@@ -238,16 +243,16 @@ async def correctLinePath():
     """
 
     #drive straight forward wenn forward color is black
-    if (colorIsBlack(fc)):
-        setMotorsStraightForward()
+    if (color_is_black(fc)):
+        set_motors_straight_forward()
     else:
-        #if color_sensor.reflection(lc) > ReflectionTreshold
+        #if color_sensor.reflection(lc) > REFLECTION_TRESHOLD
         #turn left if left color is black
-        if (colorIsBlack(lc)):
-            setMotorsTurnLeft()
+        if (color_is_black(lc)):
+            set_motors_turn_left()
            #turn right if right color is black
-        if (colorIsBlack(rc)):
-            setMotorsTurnRight()
+        if (color_is_black(rc)):
+            set_motors_turn_right()
         #drive forward to cross the goal line and the quit the program if forward color is red
         if (color_sensor.color(fc) is color.RED):
             await motor_pair.move_for_degrees(motor_pair.PAIR_1, 200, 0)
@@ -257,10 +262,10 @@ async def correctLinePath():
 async def main():
     #Linefollower workcycle and main function
     while True:
-        updateLastColors()
-        checkForTurns()
-        await checkForObstacles()
-        await correctLinePath()
+        update_last_colors()
+        check_for_turns()
+        await check_for_obstacles()
+        await correct_line_path()
 
 runloop.run(main())
 
