@@ -266,13 +266,14 @@ async def correct_line_path():
             set_motors_turn_right()
         #drive forward to cross the goal line and the quit the program if forward color is red
         if (color_sensor.color(fc) is color.RED):
-            await motor_pair.move_for_degrees(motor_pair.PAIR_1, 200, 0)
-            quit
+            await drive_straight(2)
+            exit()
 
 
 async def main():
     #Linefollower workcycle and main function
     while True:
+        set_motors_straight_forward()
         update_last_colors()
         check_for_turns()
         await check_for_obstacles()
