@@ -1,7 +1,7 @@
 # LEGO slot:0 autostart
 
 #import functions
-from hub import port, motion_sensor
+from hub import port, motion_sensor, button
 import runloop, motor, motor_pair, color_sensor, color, distance_sensor, math
 from time import sleep
 
@@ -19,34 +19,35 @@ rm = port.D
 #forward distance (sensor)
 fd = port.C
 
-#define the motor pair
-motor_pair.pair(motor_pair.PAIR_1, lm, rm)
-
-#define important values
-black_reflection = 60
-white_reflection = 100
-WHEEL_DIAMETER = 5.2
-REFLECTION_TRESHOLD = (black_reflection + white_reflection)/2
-last_color_right = "white"
-last_color_left = "white"
+#values for calibrating color sensors
+CALIBRATION_MIN_VALID = 3
+black_reflection = 100
+white_reflection = 0
+reflection_treshold = (black_reflection + white_reflection)/2
 
 #set speeds
 SPEED_STRAIGHT_FORWARD = 330
 SPEED_TURN_HIGH = SPEED_STRAIGHT_FORWARD - 10
 SPEED_TURN_LOW = SPEED_STRAIGHT_FORWARD + 10
-
 SPEED_SLOW = 160
 
-TURN_180_TIME = 1.7
+#important values
+TURN_180_TIME = 1.7/ 330 * SPEED_STRAIGHT_FORWARD
 TURN_TIME = 0.4 / 330 * SPEED_STRAIGHT_FORWARD
 OBSTACLE_DISTANCE = 45
 CLEAR_DISTANCE = 200
+WHEEL_DIAMETER = 5.2
+last_color_right = "white"
+last_color_left = "white"
+
+#define the motor pair
+motor_pair.pair(motor_pair.PAIR_1, lm, rm)
 
 def color_is_black(port: int):
-    return color_sensor.reflection(port) < REFLECTION_TRESHOLD
+    return color_sensor.reflection(port) < reflection_treshold
 
 def color_is_white(port: int):
-    return color_sensor.reflection(port) > REFLECTION_TRESHOLD
+    return color_sensor.reflection(port) > reflection_treshold
 
 def stop_motors():
     """
@@ -212,8 +213,7 @@ def check_for_turns():
         set_motors_turn_right()
 
     #turn right if black follows to green
-    if color_is_black(rc) and last_color_right != "black" and color_sensor.color(rc) != color.GREEN:
-        if last_color_right == "green":
+    if color_is_black(rc) and last_color_right == "green" and color_sensor.color(rc) != color.GREEN:
             print("turned right")
             set_motors_turn_right()
             sleep(TURN_TIME)
@@ -222,8 +222,7 @@ def check_for_turns():
             last_color_right = "green"
         
     #turn right if black follows to green
-    if color_is_black(lc) and last_color_left != "black" and color_sensor.color(lc) != color.GREEN:
-        if last_color_left == "green":
+    if color_is_black(lc) and last_color_left == "green" and color_sensor.color(lc) != color.GREEN:
             print("turned left")
             set_motors_turn_left()
             sleep(TURN_TIME)
@@ -257,7 +256,6 @@ async def correct_line_path():
     if (color_is_black(fc)):
         set_motors_straight_forward()
     else:
-        #if color_sensor.reflection(lc) > REFLECTION_TRESHOLD
         #turn left if left color is black
         if (color_is_black(lc)):
             set_motors_turn_left()
@@ -265,15 +263,38 @@ async def correct_line_path():
         if (color_is_black(rc)):
             set_motors_turn_right()
         #drive forward to cross the goal line and the quit the program if forward color is red
-        if (color_sensor.color(fc) is color.RED):
+        if (color_sensor.color(fc) == color.RED):
             await drive_straight(2)
             exit()
 
+def update_calibration():
+    """updates the current calibration values based on new data from sensors"""
+    global white_reflection
+    global black_reflection
+    global reflection_treshold
+    for sensor in [fc, rc, lc]:
+        #take multiple reading to smooth spikes
+        readings = [color_sensor.reflection(sensor) for _ in range(5)]
+        value = sum(readings) / len(readings)
+
+        #ignore invalid reading
+        if value < CALIBRATION_MIN_VALID:
+            continue
+        #update white if higher
+        if value > white_reflection:
+            white_reflection = value
+            print("updated white reflection to: ", white_reflection)
+        #update black if lower
+        if value < black_reflection:
+            black_reflection = value
+            print("updated black reflection to: ", black_reflection)
+    reflection_treshold = (white_reflection + black_reflection) / 2
 
 async def main():
     #Linefollower workcycle and main function
+    set_motors_straight_forward()
     while True:
-        set_motors_straight_forward()
+        update_calibration()
         update_last_colors()
         check_for_turns()
         await check_for_obstacles()
