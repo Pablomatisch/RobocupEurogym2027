@@ -34,11 +34,16 @@ SPEED_SLOW = 160
 #important values
 TURN_180_TIME = 1.7/ 330 * SPEED_STRAIGHT_FORWARD
 TURN_TIME = 0.45 / 330 * SPEED_STRAIGHT_FORWARD
-OBSTACLE_DISTANCE = 45
+OBSTACLE_DISTANCE = 41
 CLEAR_DISTANCE = 200
 WHEEL_DIAMETER = 5.2
 last_color_right = "white"
 last_color_left = "white"
+SILVER_TRESHOLD = 1017
+
+#for zone handling
+ZONE_TRESHOLD = 220
+previous_distance = 10000
 
 #define the motor pair
 motor_pair.pair(motor_pair.PAIR_1, lm, rm)
@@ -66,7 +71,7 @@ def color_is_silver(port: int):
     r, g, b, intensity = color_sensor.rgbi(port)
 
     #checks if everything is greater than 1000
-    if r > 1015 and g > 1015 and b > 1015:
+    if r > SILVER_TRESHOLD and g > SILVER_TRESHOLD and b > SILVER_TRESHOLD and intensity > 1012:
         print("silver detected")
         return True
     else:
@@ -279,21 +284,31 @@ async def check_for_obstacles():
         light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
 
 async def check_for_zone():
+    global ZONE_TRESHOLD
+    global previous_distance
     """Checks if entered the zone and tries to escape it"""
     if color_is_silver(fc):
         light_matrix.show_image(light_matrix.IMAGE_DIAMOND)
-        """ await drive_straight(20)
-        await rotate_degrees(90)
-        while True:
-            set_motors_straight_forward()
-            while True:
-                set_motors_straight_forward()
-                if distance_sensor(fd) < 60 or color_is_black(fc):
-                    break
-            if color_is_black(fd):
-                break
-            await rotate_degrees(90)
-        light_matrix.show_image(light_matrix.IMAGE_ARROW_N) """
+        await drive_straight(1)
+        sleep(0.5)
+        await drive_straight(1)
+        if color_is_silver(rc):
+            if color_is_white(fc) and color_is_white(rc) and color_is_white(lc):
+                await drive_straight(10)
+                await rotate_degrees(10)
+                await drive_straight(20)
+                await rotate_degrees(-90)
+                while True:
+                    reading = distance_sensor.distance(fd)
+                    if reading > previous_distance + ZONE_TRESHOLD:
+                        await rotate_degrees(8)
+                        if await drive_straight(55, SPEED_SLOW, True):
+                            break
+                    previous_distance = reading
+                    await rotate_degrees(5, SPEED_SLOW)
+
+
+
 
         
 
