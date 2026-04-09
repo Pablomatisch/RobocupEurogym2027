@@ -1,4 +1,4 @@
-# LEGO slot:0 autostart
+# LEGO slot:0 autostart 
 
 #import functions
 from hub import port, motion_sensor, button
@@ -49,6 +49,19 @@ def color_is_black(port: int):
 def color_is_white(port: int):
     return color_sensor.reflection(port) > reflection_treshold
 
+def color_is_green(port: int):
+    r, g, b, intensity = color_sensor.rgbi(port)
+
+    # avoid black / very dark readings
+    if intensity < 300:
+        return False
+
+    #check if green is greater than red
+    if g > r * 1.3 and g >= b * 1.02:
+        return True
+
+    return False
+
 def stop_motors():
     """
     Stops all current motor activity using the motor module
@@ -98,8 +111,7 @@ async def drive_straight(distance_cm: float,
                         velocity: int = SPEED_STRAIGHT_FORWARD,
                         stop_at_black: bool = False,
                         wheel_diameter_cm: float = WHEEL_DIAMETER,
-                        kp: float = 2.0,
-                        step_deg: int = 60):
+                        kp: float = 2.0):
     """
     Drive straight for a given distance (cm) and speed (°/s),
     using gyro-based correction.
@@ -175,22 +187,25 @@ def update_last_colors():
     global last_color_right
     global last_color_left
     #save the last color the right sensor sees
-    if (color_is_black(rc) and (last_color_right != "black") and last_color_right != "green" and color_sensor.color(rc) != color.GREEN):
+    if (color_is_black(rc) and (last_color_right != "black") and last_color_right != "green" and not color_is_green(rc)):
         print("saved black")
         last_color_right = "black"
-    if (color_is_white(rc) and (last_color_right != "white") and color_sensor.color(rc) != color.GREEN):
+    if (color_is_white(rc) and (last_color_right != "white") and not color_is_green(rc)):
         print("saved white")
         last_color_right = "white"
-    if (last_color_right != "green") and color_sensor.color(rc) == color.GREEN:
+    if (last_color_right != "green") and color_is_green(rc):
         print("saved green")
         last_color_right = "green"
 
     #save the last color the left sensor sees
-    if (color_is_black(lc) and (last_color_left != "black") and last_color_left != "green" and color_sensor.color(lc) != color.GREEN):
+    if (color_is_black(lc) and (last_color_left != "black") and last_color_left != "green" and not color_is_green(lc)):
+        print("saved black")
         last_color_left = "black"
-    if (color_is_white(lc) and (last_color_left != "white") and color_sensor.color(lc) != color.GREEN):
+    if (color_is_white(lc) and (last_color_left != "white") and not color_is_green(lc)):
+        print("saved white")
         last_color_left = "white"
-    if ((last_color_left != "green") and color_sensor.color(lc) == color.GREEN):
+    if ((last_color_left != "green") and color_is_green(lc)):
+        print("saved green")
         last_color_left = "green"
 
 def check_for_turns():
@@ -202,7 +217,7 @@ def check_for_turns():
     global last_color_left
     global last_color_right
     #check colors on the ground in case there is a turn
-    if color_sensor.color(lc) == color.GREEN and color_sensor.color(rc) == color.GREEN:
+    if color_is_green(lc) and color_is_green(rc):
         print("did a full turn")
         last_color_right = "green"
         last_color_left = "green"
@@ -213,7 +228,7 @@ def check_for_turns():
         set_motors_turn_right()
 
     #turn right if black follows to green
-    if color_is_black(rc) and last_color_right == "green" and color_sensor.color(rc) != color.GREEN:
+    if color_is_black(rc) and last_color_right == "green" and not color_is_green(rc):
             print("turned right")
             set_motors_turn_right()
             sleep(TURN_TIME)
@@ -222,7 +237,7 @@ def check_for_turns():
             last_color_right = "green"
         
     #turn right if black follows to green
-    if color_is_black(lc) and last_color_left == "green" and color_sensor.color(lc) != color.GREEN:
+    if color_is_black(lc) and last_color_left == "green" and not color_is_green(lc):
             print("turned left")
             set_motors_turn_left()
             sleep(TURN_TIME)
