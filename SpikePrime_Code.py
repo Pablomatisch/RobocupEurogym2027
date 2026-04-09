@@ -1,7 +1,7 @@
 # LEGO slot:0 autostart 
 
 #import functions
-from hub import port, motion_sensor, button
+from hub import port, motion_sensor, light_matrix
 import runloop, motor, motor_pair, color_sensor, color, distance_sensor, math
 from time import sleep
 
@@ -34,7 +34,7 @@ SPEED_SLOW = 160
 #important values
 TURN_180_TIME = 1.7/ 330 * SPEED_STRAIGHT_FORWARD
 TURN_TIME = 0.45 / 330 * SPEED_STRAIGHT_FORWARD
-OBSTACLE_DISTANCE = 40
+OBSTACLE_DISTANCE = 45
 CLEAR_DISTANCE = 200
 WHEEL_DIAMETER = 5.2
 last_color_right = "white"
@@ -66,7 +66,7 @@ def color_is_silver(port: int):
     r, g, b, intensity = color_sensor.rgbi(port)
 
     #checks if everything is greater than 1000
-    if r > 930 and g > 930 and b > 930:
+    if r > 1015 and g > 1015 and b > 1015:
         print("silver detected")
         return True
     else:
@@ -198,10 +198,8 @@ def update_last_colors():
     global last_color_left
     #save the last color the right sensor sees
     if (color_is_black(rc) and (last_color_right != "black") and last_color_right != "green" and not color_is_green(rc)):
-        print("saved black")
         last_color_right = "black"
     if (color_is_white(rc) and (last_color_right != "white") and not color_is_green(rc)):
-        print("saved white")
         last_color_right = "white"
     if (last_color_right != "green") and color_is_green(rc):
         print("saved green")
@@ -209,10 +207,8 @@ def update_last_colors():
 
     #save the last color the left sensor sees
     if (color_is_black(lc) and (last_color_left != "black") and last_color_left != "green" and not color_is_green(lc)):
-        print("saved black")
         last_color_left = "black"
     if (color_is_white(lc) and (last_color_left != "white") and not color_is_green(lc)):
-        print("saved white")
         last_color_left = "white"
     if ((last_color_left != "green") and color_is_green(lc)):
         print("saved green")
@@ -229,6 +225,7 @@ def check_for_turns():
     #check colors on the ground in case there is a turn
     if color_is_green(lc) and color_is_green(rc):
         print("did a full turn")
+        light_matrix.show_image(light_matrix.IMAGE_ARROW_S)
         last_color_right = "green"
         last_color_left = "green"
         set_motors_turn_right()
@@ -236,24 +233,29 @@ def check_for_turns():
         set_motors_straight_forward()
         sleep(0.2)
         set_motors_turn_right()
+        light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
 
     #turn right if black follows to green
     if color_is_black(rc) and last_color_right == "green" and not color_is_green(rc):
             print("turned right")
+            light_matrix.show_image(light_matrix.IMAGE_ARROW_E)
             set_motors_turn_right()
             sleep(TURN_TIME)
             set_motors_straight_forward()
             sleep(0.3)
             last_color_right = "green"
+            light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
         
     #turn right if black follows to green
     if color_is_black(lc) and last_color_left == "green" and not color_is_green(lc):
             print("turned left")
+            light_matrix.show_image(light_matrix.IMAGE_ARROW_W)
             set_motors_turn_left()
             sleep(TURN_TIME)
             set_motors_straight_forward()
             sleep(0.3)
             last_color_left = "black"
+            light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
 
 async def check_for_obstacles():
     """ Checks if there are obstacles in front of the robot and maneuvers around. """
@@ -261,30 +263,37 @@ async def check_for_obstacles():
 
     if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
         print("obstacle detected")
+        light_matrix.show_image(light_matrix.IMAGE_SQUARE)
         await rotate_degrees(-90, SPEED_SLOW)
         await drive_straight(25, SPEED_SLOW)
         await rotate_degrees(90, SPEED_SLOW)
         while True:
-            if await drive_straight(40, SPEED_SLOW, True):
+            if await drive_straight(45, SPEED_SLOW, True):
                 break
             await rotate_degrees(90, SPEED_SLOW)
             count -= 1
             if count == 0:
                 set_motors_straight_forward()
                 break
-        await rotate_degrees(-10)
+        await rotate_degrees(-15)
+        light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
 
 async def check_for_zone():
     """Checks if entered the zone and tries to escape it"""
     if color_is_silver(fc):
-        await drive_straight(20)
+        light_matrix.show_image(light_matrix.IMAGE_DIAMOND)
+        """ await drive_straight(20)
         await rotate_degrees(90)
         while True:
             set_motors_straight_forward()
-            runloop.until((distance_sensor(fd) < 50 or color_is_black(fc)), 25000)
+            while True:
+                set_motors_straight_forward()
+                if distance_sensor(fd) < 60 or color_is_black(fc):
+                    break
             if color_is_black(fd):
                 break
             await rotate_degrees(90)
+        light_matrix.show_image(light_matrix.IMAGE_ARROW_N) """
 
         
 
@@ -296,7 +305,7 @@ async def correct_line_path():
     """
 
     #drive straight forward wenn forward color is black
-    if (color_is_black(fc)):
+    if (color_is_black(fc)) and color_is_white(rc) and color_is_white(lc):
         set_motors_straight_forward()
     else:
         #turn left if left color is black
@@ -326,20 +335,22 @@ def update_calibration():
         #update white if higher
         if value > white_reflection:
             white_reflection = value
-            print("updated white reflection to: ", white_reflection)
+            #print("updated white reflection to: ", white_reflection)
         #update black if lower
         if value < black_reflection:
             black_reflection = value
-            print("updated black reflection to: ", black_reflection)
+            #print("updated black reflection to: ", black_reflection)
     reflection_treshold = (white_reflection + black_reflection) / 2
 
 async def main():
     #Linefollower workcycle and main function
+    light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
     set_motors_straight_forward()
     while True:
         update_calibration()
         update_last_colors()
         check_for_turns()
+        await check_for_zone()
         await check_for_obstacles()
         await correct_line_path()
 
