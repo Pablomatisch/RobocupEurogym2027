@@ -26,15 +26,15 @@ white_reflection = 0
 reflection_treshold = (black_reflection + white_reflection)/2
 
 #set speeds
-SPEED_STRAIGHT_FORWARD = 330
-SPEED_TURN_HIGH = SPEED_STRAIGHT_FORWARD - 10
-SPEED_TURN_LOW = SPEED_STRAIGHT_FORWARD + 10
+SPEED_STRAIGHT_FORWARD = 290
+SPEED_TURN_HIGH = SPEED_STRAIGHT_FORWARD - 40
+SPEED_TURN_LOW = SPEED_STRAIGHT_FORWARD + 20
 SPEED_SLOW = 160
 
 #important values
 TURN_180_TIME = 1.7/ 330 * SPEED_STRAIGHT_FORWARD
-TURN_TIME = 0.4 / 330 * SPEED_STRAIGHT_FORWARD
-OBSTACLE_DISTANCE = 45
+TURN_TIME = 0.45 / 330 * SPEED_STRAIGHT_FORWARD
+OBSTACLE_DISTANCE = 40
 CLEAR_DISTANCE = 200
 WHEEL_DIAMETER = 5.2
 last_color_right = "white"
@@ -61,6 +61,16 @@ def color_is_green(port: int):
         return True
 
     return False
+
+def color_is_silver(port: int):
+    r, g, b, intensity = color_sensor.rgbi(port)
+
+    #checks if everything is greater than 1000
+    if r > 930 and g > 930 and b > 930:
+        print("silver detected")
+        return True
+    else:
+        return False
 
 def stop_motors():
     """
@@ -247,6 +257,7 @@ def check_for_turns():
 
 async def check_for_obstacles():
     """ Checks if there are obstacles in front of the robot and maneuvers around. """
+    count = 3
 
     if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
         print("obstacle detected")
@@ -257,7 +268,24 @@ async def check_for_obstacles():
             if await drive_straight(40, SPEED_SLOW, True):
                 break
             await rotate_degrees(90, SPEED_SLOW)
+            count -= 1
+            if count == 0:
+                set_motors_straight_forward()
+                break
         await rotate_degrees(-10)
+
+async def check_for_zone():
+    """Checks if entered the zone and tries to escape it"""
+    if color_is_silver(fc):
+        await drive_straight(20)
+        await rotate_degrees(90)
+        while True:
+            set_motors_straight_forward()
+            runloop.until((distance_sensor(fd) < 50 or color_is_black(fc)), 25000)
+            if color_is_black(fd):
+                break
+            await rotate_degrees(90)
+
         
 
 async def correct_line_path():
