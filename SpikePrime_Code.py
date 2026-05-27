@@ -7,17 +7,17 @@ from time import sleep
 
 #define ports for better overview
 #forward color
-fc = port.B
+fc = port.A
 #left color
-lc = port.E
+lc = port.D
 #right color
-rc = port.F
+rc = port.C
 #left motor
-lm = port.A
+lm = port.F
 #right motor
-rm = port.D
+rm = port.E
 #forward distance (sensor)
-fd = port.C
+fd = port.B
 
 #values for calibrating color sensors
 CALIBRATION_MIN_VALID = 3
@@ -25,16 +25,22 @@ black_reflection = 100
 white_reflection = 0
 reflection_treshold = (black_reflection + white_reflection)/2
 
+# image names
+ARROW_RIGHT = light_matrix.IMAGE_ARROW_W
+ARROW_LEFT = light_matrix.IMAGE_ARROW_E
+ARROW_FRONT = light_matrix.IMAGE_ARROW_S
+ARROW_BACK = light_matrix.IMAGE_ARROW_N
+
 #set speeds
-SPEED_STRAIGHT_FORWARD = 290
-SPEED_TURN_HIGH = SPEED_STRAIGHT_FORWARD - 40
-SPEED_TURN_LOW = SPEED_STRAIGHT_FORWARD + 20
+SPEED_STRAIGHT_FORWARD = 340
+SPEED_TURN_HIGH = SPEED_STRAIGHT_FORWARD
+SPEED_TURN_LOW = 120
 SPEED_SLOW = 160
 
 #important values
 TURN_180_TIME = 1.7/ 330 * SPEED_STRAIGHT_FORWARD
 TURN_TIME = 0.45 / 330 * SPEED_STRAIGHT_FORWARD
-OBSTACLE_DISTANCE = 41
+OBSTACLE_DISTANCE = 80
 CLEAR_DISTANCE = 200
 WHEEL_DIAMETER = 5.2
 last_color_right = "white"
@@ -62,7 +68,7 @@ def color_is_green(port: int):
         return False
 
     #check if green is greater than red
-    if g > r * 1.3 and g >= b * 1.02:
+    if g > r * 1.2 and g >= b * 1.01:
         return True
 
     return False
@@ -91,8 +97,8 @@ def set_motors_straight_forward(velocity:float = SPEED_STRAIGHT_FORWARD):
     Args:
         velocity (int): Motor speed in degrees per second (default: SPEED_STRAIGHT_FORWARD)
     """
-    motor.run(lm, -(velocity))
-    motor.run(rm, velocity)
+    motor.run(lm, -int(velocity))
+    motor.run(rm, int(velocity))
 
 def set_motors_turn_right(high_velocity:int = SPEED_TURN_HIGH, low_velocity:int = SPEED_TURN_LOW):
     """
@@ -176,7 +182,7 @@ async def drive_straight(distance_cm: float,
     motor_pair.stop(motor_pair.PAIR_1)
     return False
 
-async def rotate_degrees(rotate_degrees: float, velocity: int = SPEED_STRAIGHT_FORWARD):
+async def rotate_degrees(rotate_degrees: float, velocity: int = SPEED_STRAIGHT_FORWARD, stop_at_black: bool = False):
     """
     Turns the robot for a several degrees.
     Args:
@@ -190,12 +196,15 @@ async def rotate_degrees(rotate_degrees: float, velocity: int = SPEED_STRAIGHT_F
     rotated_degrees = 0
 
     while abs(rotate_degrees) > rotated_degrees:
+        if stop_at_black:
+            if color_is_black(fc):
+                motor_pair.stop(motor_pair.PAIR_1)
+                return True
         motor_pair.move(motor_pair.PAIR_1, steer, velocity=velocity)
         rotated_degrees = abs(motion_sensor.tilt_angles()[0]*0.1)
-        # calculate decellarateion relative to angle left to rotate
-        rotate_degrees_left = abs(rotate_degrees) - rotated_degrees
     print("rotated", rotate_degrees, "degrees")
     motor_pair.stop(motor_pair.PAIR_1)
+    return False
 
 def update_last_colors():
     """ Checks and updates the last seen color of the left and right color sensors. """
@@ -219,7 +228,7 @@ def update_last_colors():
         print("saved green")
         last_color_left = "green"
 
-def check_for_turns():
+async def check_for_turns():
     """
     Checks for any green markings on the ground and lets the robot turn in the right direction if they follow up to white
 
@@ -230,7 +239,7 @@ def check_for_turns():
     #check colors on the ground in case there is a turn
     if color_is_green(lc) and color_is_green(rc):
         print("did a full turn")
-        light_matrix.show_image(light_matrix.IMAGE_ARROW_S)
+        light_matrix.show_image(ARROW_BACK)
         last_color_right = "green"
         last_color_left = "green"
         set_motors_turn_right()
@@ -238,50 +247,59 @@ def check_for_turns():
         set_motors_straight_forward()
         sleep(0.2)
         set_motors_turn_right()
-        light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
+        light_matrix.show_image(ARROW_FRONT)
 
     #turn right if black follows to green
     if color_is_black(rc) and last_color_right == "green" and not color_is_green(rc):
             print("turned right")
-            light_matrix.show_image(light_matrix.IMAGE_ARROW_E)
-            set_motors_turn_right()
-            sleep(TURN_TIME)
-            set_motors_straight_forward()
-            sleep(0.3)
-            last_color_right = "green"
-            light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
+            light_matrix.show_image(ARROW_RIGHT)
+            await drive_straight(8)
+            await rotate_degrees(-15, SPEED_SLOW)
+            await rotate_degrees(-75, SPEED_SLOW, True)
+            # set_motors_turn_right()
+            # sleep(TURN_TIME)
+            # set_motors_straight_forward()
+            # sleep(0.3)
+            last_color_right = "black"
+            light_matrix.show_image(ARROW_FRONT)
         
     #turn right if black follows to green
     if color_is_black(lc) and last_color_left == "green" and not color_is_green(lc):
             print("turned left")
-            light_matrix.show_image(light_matrix.IMAGE_ARROW_W)
-            set_motors_turn_left()
-            sleep(TURN_TIME)
-            set_motors_straight_forward()
-            sleep(0.3)
+            light_matrix.show_image(ARROW_LEFT)
+            await drive_straight(8)
+            await rotate_degrees(15, SPEED_SLOW)
+            await rotate_degrees(75, SPEED_SLOW, True)
+            # set_motors_turn_left()
+            # sleep(TURN_TIME)
+            # set_motors_straight_forward()
+            # sleep(0.3)
             last_color_left = "black"
-            light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
+            light_matrix.show_image(ARROW_FRONT)
 
 async def check_for_obstacles():
     """ Checks if there are obstacles in front of the robot and maneuvers around. """
     count = 3
 
     if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
-        print("obstacle detected")
-        light_matrix.show_image(light_matrix.IMAGE_SQUARE)
-        await rotate_degrees(-90, SPEED_SLOW)
-        await drive_straight(25, SPEED_SLOW)
-        await rotate_degrees(90, SPEED_SLOW)
-        while True:
-            if await drive_straight(45, SPEED_SLOW, True):
-                break
+        #wait for a short time to make sure its not a false positive
+        sleep(0.2)
+        if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
+            print("obstacle detected")
+            light_matrix.show_image(light_matrix.IMAGE_SQUARE)
+            await rotate_degrees(-90, SPEED_SLOW)
+            await drive_straight(25, SPEED_SLOW)
             await rotate_degrees(90, SPEED_SLOW)
-            count -= 1
-            if count == 0:
-                set_motors_straight_forward()
-                break
-        await rotate_degrees(-15)
-        light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
+            while True:
+                if await drive_straight(45, SPEED_SLOW, True):
+                    break
+                await rotate_degrees(90, SPEED_SLOW)
+                count -= 1
+                if count == 0:
+                    set_motors_straight_forward()
+                    break
+            await rotate_degrees(-15)
+            light_matrix.show_image(ARROW_FRONT)
 
 async def check_for_zone():
     global ZONE_TRESHOLD
@@ -309,7 +327,7 @@ async def check_for_zone():
                     previous_distance = reading
                     await rotate_degrees(2, SPEED_SLOW)
         else:
-            light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
+            light_matrix.show_image(ARROW_FRONT)
 
 async def correct_line_path():
     """
@@ -358,12 +376,12 @@ def update_calibration():
 
 async def main():
     #Linefollower workcycle and main function
-    light_matrix.show_image(light_matrix.IMAGE_ARROW_N)
+    light_matrix.show_image(ARROW_FRONT)
     set_motors_straight_forward()
     while True:
         update_calibration()
         update_last_colors()
-        check_for_turns()
+        await check_for_turns()
         await check_for_zone()
         await check_for_obstacles()
         await correct_line_path()
