@@ -1,335 +1,537 @@
 # LEGO slot:0 autostart 
 
-#import functions
-from hub import port, motion_sensor, light_matrix
-import runloop, motor, motor_pair, color_sensor, color, distance_sensor, math
+# imports for robot class
+from hub import motion_sensor, light_matrix
+import motor, motor_pair, color_sensor, color, distance_sensor, math
+from hub import port
+import runloop
 from time import sleep
 
-#define ports for better overview
-#forward color
-fc = port.A
-#left color
-lc = port.D
-#right color
-rc = port.C
-#left motor
-lm = port.F
-#right motor
-rm = port.E
-#forward distance (sensor)
-fd = port.B
-
-#values for calibrating color sensors
-CALIBRATION_MIN_VALID = 3
-black_reflection = 100
-white_reflection = 0
-reflection_treshold = (black_reflection + white_reflection)/2
-
-# image names
-ARROW_RIGHT = light_matrix.IMAGE_ARROW_W
-ARROW_LEFT = light_matrix.IMAGE_ARROW_E
-ARROW_FRONT = light_matrix.IMAGE_ARROW_S
-ARROW_BACK = light_matrix.IMAGE_ARROW_N
-
-#set speeds
-SPEED_STRAIGHT_FORWARD = 340
-SPEED_TURN_HIGH = SPEED_STRAIGHT_FORWARD
-SPEED_TURN_LOW = 120
-SPEED_SLOW = 160
-
-#important values
-TURN_180_TIME = 1.7/ 330 * SPEED_STRAIGHT_FORWARD
-TURN_TIME = 0.45 / 330 * SPEED_STRAIGHT_FORWARD
-OBSTACLE_DISTANCE = 80
-CLEAR_DISTANCE = 200
-WHEEL_DIAMETER = 5.2
-last_color_right = "white"
-last_color_left = "white"
-SILVER_TRESHOLD = 1017
-
-#for zone handling
-ZONE_TRESHOLD = 220
-previous_distance = 10000
-
-#define the motor pair
-motor_pair.pair(motor_pair.PAIR_1, lm, rm)
-
-def color_is_black(port: int):
-    return color_sensor.reflection(port) < reflection_treshold
-
-def color_is_white(port: int):
-    return color_sensor.reflection(port) > reflection_treshold
-
-def color_is_green(port: int):
-    r, g, b, intensity = color_sensor.rgbi(port)
-
-    # avoid black / very dark readings
-    if intensity < 300:
-        return False
-
-    #check if green is greater than red
-    if g > r * 1.2 and g >= b * 1.01:
-        return True
-
-    return False
-
-def color_is_silver(port: int):
-    r, g, b, intensity = color_sensor.rgbi(port)
-
-    #checks if everything is greater than 1000
-    if r > SILVER_TRESHOLD and g > SILVER_TRESHOLD and b > SILVER_TRESHOLD and intensity > 1010:
-        #print("silver detected")
-        return True
-    else:
-        return False
-
-def stop_motors():
+class Hub:
     """
-    Stops all current motor activity using the motor module
+    Class for the hub, which contains all the ports and constants for the robot, as well as some helper functions for controlling the motors and sensors.
     """
-    motor.stop(lm)
-    motor.stop(rm)
-
-def set_motors_straight_forward(velocity:float = SPEED_STRAIGHT_FORWARD):
-    """
-    Sets the motors to drive straight ahead using the motor module
-
-    Args:
-        velocity (int): Motor speed in degrees per second (default: SPEED_STRAIGHT_FORWARD)
-    """
-    motor.run(lm, -int(velocity))
-    motor.run(rm, int(velocity))
-
-def set_motors_turn_right(high_velocity:int = SPEED_TURN_HIGH, low_velocity:int = SPEED_TURN_LOW):
-    """
-    Sets the motors to a right turn using the motor module
-
-    Args:
-        high_velocity (int): Motor speed in degrees per second (default: SPEED_TURN_HIGH)
-        low_velocity (int): Motor speed in degrees per second (default: SPEED_TURN_LOW)
-    """
-    motor.run(lm, -(high_velocity))
-    motor.run(rm, -(low_velocity))
-
-def set_motors_turn_left(high_velocity:int = SPEED_TURN_HIGH, low_velocity:int = SPEED_TURN_LOW):
-    """
-    Sets the motors to a left turn using the motor module
-
-    Args:
-        high_velocity (int): Motor speed in degrees per second (default: SPEED_TURN_HIGH)
-        low_velocity (int): Motor speed in degrees per second (default: SPEED_TURN_LOW)
-    """
-    motor.run(lm, low_velocity)
-    motor.run(rm, high_velocity)
-
-def deg_for_distance(distance_cm: float, wheel_diameter_cm: float = WHEEL_DIAMETER) -> int:
-    """Convert distance in cm to motor rotation degrees."""
-    circumference = math.pi * wheel_diameter_cm
-    return int((distance_cm / circumference) * 360)
+    def __init__(self, 
+                 forward_color_port, 
+                 left_color_port, 
+                 right_color_port, 
+                 left_motor_port, 
+                 right_motor_port, 
+                 forward_distance_port,
+                 obstacle_distance,
+                 wheel_diameter,
+                 default_reflection_treshold,
+                 silver_threshold,
+                 speed_straight_forward,
+                 speed_turn_high,
+                 speed_turn_low,
+                 speed_slow):
+        self.forward_color_port = forward_color_port # port of forward color sensor
+        self.left_color_port = left_color_port # port of left color sensor
+        self.right_color_port = right_color_port # port of right color sensor
+        self.left_motor_port = left_motor_port # port of left motor
+        self.right_motor_port = right_motor_port # port of right motor
+        self.forward_distance_port = forward_distance_port # port of forward distance sensor
+        self.obstacle_distance = obstacle_distance # distance at which an obstacle is detected as such
+        self.wheel_diameter = wheel_diameter # diameter of the wheels, used for calculate distances and turns
+        self.default_reflection_treshold = default_reflection_treshold # threshold for distinguishing between black and white surfaces
+        self.silver_threshold = silver_threshold # threshold for detecting silver surfaces, used for zone handling
+        self.speed_straight_forward = speed_straight_forward # speed for driving straight forward
+        self.speed_turn_high = speed_turn_high # speed for the faster motor when turning
+        self.speed_turn_low = speed_turn_low # speed for the slower motor when turning
+        self.speed_slow = speed_slow # speed for slow movements, e.g. for some turns or for driving in the zone
+        self.motor_pair = motor_pair.pair(motor_pair.PAIR_1, self.left_motor_port, self.right_motor_port) # motor pair for easier control of both motors at the same time
 
 
-async def drive_straight(distance_cm: float,
-                        velocity: int = SPEED_STRAIGHT_FORWARD,
-                        stop_at_black: bool = False,
-                        wheel_diameter_cm: float = WHEEL_DIAMETER,
-                        kp: float = 2.0):
-    """
-    Drive straight for a given distance (cm) and speed (°/s),
-    using gyro-based correction.
 
-    Returns True when stopped by black line
-
-    Args:
-        distance_cm (float): Distance to travel in cm.
-        velocity (int): Motor speed in degrees per second.
-        stop_at_black (bool): Defines if the function should stop when detecting a black line
-        wheel_diameter_cm (float): Wheel diameter in cm.
-        kp (float): Proportional gain for gyro correction (default 2.0).
-        step_deg (int): Step size in motor degrees per correction cycle.
-    """
+    #---------------------------------------------------------
+    #
+    # IMPORTANT HELPER FUNCTIONS
+    #
+    #---------------------------------------------------------
 
     
+    def distance_in_mm(self, port = None):
 
-    # Reset the gyro
-    motion_sensor.reset_yaw(0)
+        """
+        Gets the distance in mm from the distance sensor on the given port.
+        Args:
+            port: the port of the distance sensor to check (default: forward distance sensor)
+        """
 
-    # Reset motor degrees
-    motor.reset_relative_position(lm, 0)
+        port = port or self.forward_distance_port
+        return distance_sensor.distance(port)
+    
 
-    target_degrees = deg_for_distance(abs(distance_cm), wheel_diameter_cm)
-    direction_forward_multiplicator = distance_cm * velocity
-    if (direction_forward_multiplicator > 0):
-        direction_forward_multiplicator = 1
-    else:
-        direction_forward_multiplicator = -1
+    def deg_for_distance(self, distance_cm: float , wheel_diameter_cm = None) -> int:
 
-    moved_degrees = 0
+        """
+        Convert distance in cm to motor rotation degrees.
+        Args:
+            distance_cm: distance in cm to convert
+            wheel_diameter_cm: diameter of the wheels in cm (default: self.wheel_diameter)
+        """
 
-    while moved_degrees < target_degrees:
-        if stop_at_black:
-            if color_is_black(fc):
-                motor_pair.stop(motor_pair.PAIR_1)
-                return True
-        # SPIKE 3: tilt_angles()[0] gives yaw in deci-degrees with inverted sign
-        yaw_deg = motion_sensor.tilt_angles()[0] * -0.1
-        error = 0 - (yaw_deg * direction_forward_multiplicator)
-        steer = int(max(-100, min(100, kp * error)))# Clamp steering between -100 and 100
+        wheel_diameter_cm = wheel_diameter_cm or self.wheel_diameter
+        circumference = math.pi * wheel_diameter_cm
+        return int((distance_cm / circumference) * 360) 
 
-        # move forward an set new steering correction
-        motor_pair.move(motor_pair.PAIR_1, steer, velocity=abs(velocity)*direction_forward_multiplicator)
-        moved_degrees = abs(motor.relative_position(lm))
 
-    motor_pair.stop(motor_pair.PAIR_1)
-    return False
+    def show_image(self, image = None):
 
-async def rotate_degrees(rotate_degrees: float, velocity: int = SPEED_STRAIGHT_FORWARD, stop_at_black: bool = False):
-    """
-    Turns the robot for a several degrees.
-    Args:
-        degrees: amount of degrees to turn the robot (use negative values to turn right and positiv values to turn left)
-    """
-    # Reset the gyro
-    motion_sensor.reset_yaw(0)
-    steer = -100
-    if (rotate_degrees < 0):
-        steer = -steer
-    rotated_degrees = 0
+        """
+        Shows an image on the light matrix. 
+        Possible values for image are
 
-    while abs(rotate_degrees) > rotated_degrees:
-        if stop_at_black:
-            if color_is_black(fc):
-                motor_pair.stop(motor_pair.PAIR_1)
-                return True
-        motor_pair.move(motor_pair.PAIR_1, steer, velocity=velocity)
-        rotated_degrees = abs(motion_sensor.tilt_angles()[0]*0.1)
-    print("rotated", rotate_degrees, "degrees")
-    motor_pair.stop(motor_pair.PAIR_1)
-    return False
+          "arrow_front" for a an arrow pointing forward (default)
+
+          "arrow_back" for a an arrow pointing backwards
+
+          "arrow_left"  for a an arrow pointing left
+
+          "arrow_right" for a an arrow pointing right
+
+          "square" for a square
+
+          "diamond" for a diamond
+        """
+
+        if image == "arrow_front":
+            final_image = light_matrix.IMAGE_ARROW_S
+        elif image == "arrow_back":
+            final_image = light_matrix.IMAGE_ARROW_N
+        elif image == "arrow_left":
+            final_image = light_matrix.IMAGE_ARROW_E
+        elif image == "arrow_right":
+            final_image = light_matrix.IMAGE_ARROW_W
+        elif image == "square":
+            final_image = light_matrix.IMAGE_SQUARE
+        elif image == "diamond":
+            final_image = light_matrix.IMAGE_DIAMOND
+        else:
+            final_image = light_matrix.IMAGE_ARROW_S
+        light_matrix.show_image(final_image)
+        
+
+
+    #---------------------------------------------------------
+    #
+    # HELPER FUNCTIONS FOR SENSORS
+    #
+    #---------------------------------------------------------
+
+    def color_is_black(self, port = None, default_reflection_treshold = None):
+
+        """
+        Checks if the color sensor on the given port detects black based on the reflection value and the default reflection threshold.
+        Args:
+            port: the port of the color sensor to check (default: forward color sensor)
+            default_reflection_treshold: the reflection threshold to use for distinguishing between black and white (default: default_reflection_treshold)
+        """
+
+        port = port or self.forward_color_port
+        default_reflection_treshold = default_reflection_treshold or self.default_reflection_treshold
+        return (color_sensor.reflection(port) < default_reflection_treshold and not self.color_is_green(port))
+
+
+    def color_is_white(self, port = None, default_reflection_treshold = None):
+
+        """ 
+        Checks if the color sensor on the given port detects white based on the reflection value and the default reflection threshold.
+        Args:
+            port: the port of the color sensor to check (default: forward color sensor)
+            default_reflection_treshold: the reflection threshold to use for distinguishing between black and white (default: default_reflection_treshold)
+        """
+
+        port = port or self.forward_color_port
+        default_reflection_treshold = default_reflection_treshold or self.default_reflection_treshold
+        return (color_sensor.reflection(port) > default_reflection_treshold and not self.color_is_green(port))
+
+
+    def color_is_green(self, port = None):
+        
+        """ 
+        Checks if the color sensor on the given port detects green based on the RGB values.
+        Args:
+            port: the port of the color sensor to check (default: forward color sensor)
+        """
+
+        port = port or self.forward_color_port
+        r, g, b, intensity = color_sensor.rgbi(port)
+
+        # avoid black / very dark readings
+        if intensity < 300:
+            return False
+
+        #check if green is greater than red
+        if g > r * 1.1 and g >= b * 1.01:
+            return True
+
+        return False
+    
+    def color_is_red(self, port = None):
+
+        """ 
+        Checks if the color sensor on the given port detects red.
+        Args:
+            port: the port of the color sensor to check (default: forward color sensor)
+        """
+
+        port = port or self.forward_color_port
+
+        return color_sensor.color(port) == color.RED
+
+
+    def color_is_silver(self, port = None, silver_threshold = None):
+
+        """
+        Checks if the color sensor on the given port detects silver based on the RGB values.
+        Args:
+            port: the port of the color sensor to check (default: forward color sensor)
+            silver_threshold: the threshold for detecting silver surfaces (default: silver_threshold)
+        """
+
+        port = port or self.forward_color_port
+        silver_threshold = silver_threshold or self.silver_threshold
+        r, g, b, intensity = color_sensor.rgbi(port)
+
+        #checks if everything is greater than 1000
+        if r > silver_threshold and g > silver_threshold and b > silver_threshold and intensity > 1010:
+            #print("silver detected")
+            return True
+        else:
+            return False
+        
+
+
+    #---------------------------------------------------------
+    #
+    # HELPER FUNCTIONS FOR MOTORS
+    #
+    #---------------------------------------------------------
+
+
+    def stop_motors(self):
+
+        """
+        Stops the given motors. If no motors are given, stops both motors left and right.
+        Args:
+            motors: the motors to stop (default: [left_motor_port, right_motor_port])
+        """
+
+        motor.stop(self.left_motor_port)
+        motor.stop(self.right_motor_port)
+
+
+    def set_motors_straight_forward(self, velocity = None):
+
+        """
+        Sets the motors to drive straight ahead using the motor module
+
+        Args:
+            velocity (int): Motor speed in degrees per second (default: SPEED_STRAIGHT_FORWARD)
+        """
+        
+        velocity = velocity or self.speed_straight_forward
+        motor.run(self.left_motor_port, -int(velocity))
+        motor.run(self.right_motor_port, int(velocity))
+
+
+    def set_motors_turn_right(self, high_velocity = None, low_velocity = None):
+
+        """
+        Sets the motors to a right turn using the motor module
+
+        Args:
+            high_velocity (int): Motor speed in degrees per second (default: speed_turn_high)
+            low_velocity (int): Motor speed in degrees per second (default: speed_turn_low)
+        """
+
+        high_velocity = high_velocity or self.speed_turn_high
+        low_velocity = low_velocity or self.speed_turn_low
+        motor.run(self.left_motor_port, -(high_velocity))
+        motor.run(self.right_motor_port, -(low_velocity))
+
+
+    def set_motors_turn_left(self, high_velocity = None, low_velocity = None):
+
+        """
+        Sets the motors to a left turn using the motor module
+
+        Args:
+            high_velocity (int): Motor speed in degrees per second (default: speed_turn_high)
+            low_velocity (int): Motor speed in degrees per second (default: speed_turn_low)
+        """
+
+        high_velocity = high_velocity or self.speed_turn_high
+        low_velocity = low_velocity or self.speed_turn_low
+        motor.run(self.left_motor_port, low_velocity)
+        motor.run(self.right_motor_port, high_velocity)
+
+
+
+    #---------------------------------------------------------
+    #
+    # HIGH LEVEL MOVEMENT FUNCTIONS
+    # 
+    #---------------------------------------------------------
+
+
+    async def drive_straight(self, distance_cm: float,
+                            velocity = None,
+                            stop_at_black = None,
+                            wheel_diameter_cm = None,
+                            kp = None):
+        
+        """
+        Drive straight for a given distance (cm) and speed (°/s),
+        using gyro-based correction.
+
+        Returns True when stopped by black line
+
+        Args:
+            distance_cm (float): Distance to travel in cm.
+            velocity (int): Motor speed in degrees per second.
+            stop_at_black (bool): Defines if the function should stop when detecting a black line
+            wheel_diameter_cm (float): Wheel diameter in cm.
+            kp (float): Proportional gain for gyro correction (default 2.0).
+        """
+
+        velocity = velocity or self.speed_straight_forward
+        wheel_diameter_cm = wheel_diameter_cm or self.wheel_diameter
+        kp = kp or 2.0
+
+        # Reset the gyro
+        motion_sensor.reset_yaw(0)
+
+        # Reset motor degrees
+        motor.reset_relative_position(self.left_motor_port, 0)
+
+        target_degrees = self.deg_for_distance(abs(distance_cm), wheel_diameter_cm)
+        direction_forward_multiplicator = distance_cm * velocity
+        if (direction_forward_multiplicator > 0):
+            direction_forward_multiplicator = 1
+        else:
+            direction_forward_multiplicator = -1
+
+        moved_degrees = 0
+
+        while moved_degrees < target_degrees:
+            if stop_at_black:
+                if self.color_is_black():
+                    motor_pair.stop(motor_pair.PAIR_1)
+                    return True
+            # SPIKE 3: tilt_angles()[0] gives yaw in deci-degrees with inverted sign
+            yaw_deg = motion_sensor.tilt_angles()[0] * -0.1
+            error = 0 - (yaw_deg * direction_forward_multiplicator)
+            steer = int(max(-100, min(100, kp * error)))# Clamp steering between -100 and 100
+
+            # move forward an set new steering correction
+            motor_pair.move(motor_pair.PAIR_1, steer, velocity=abs(velocity)*direction_forward_multiplicator)
+            moved_degrees = abs(motor.relative_position(self.left_motor_port))
+
+        motor_pair.stop(motor_pair.PAIR_1)
+        return False
+
+
+    async def rotate_degrees(self, rotate_degrees: float, velocity = None, stop_at_black = None):
+
+        """
+        Turns the robot for a several degrees.
+        Args:
+            degrees: amount of degrees to turn the robot (use negative values to turn right and positiv values to turn left)
+            stop_at_black: Defines if the function should stop when detecting a black line
+        """
+
+        velocity = velocity or self.speed_straight_forward
+        stop_at_black = stop_at_black or False
+        # Reset the gyro
+        motion_sensor.reset_yaw(0)
+        steer = -100
+        if (rotate_degrees < 0):
+            steer = -steer
+        rotated_degrees = 0
+
+        while abs(rotate_degrees) > rotated_degrees:
+            if stop_at_black:
+                if self.color_is_black():
+                    motor_pair.stop(motor_pair.PAIR_1)
+                    return True
+            motor_pair.move(motor_pair.PAIR_1, steer, velocity=velocity)
+            rotated_degrees = abs(motion_sensor.tilt_angles()[0]*0.1)
+        print("rotated", rotate_degrees, "degrees")
+        motor_pair.stop(motor_pair.PAIR_1)
+        return False
+    
+
+
+
+
+
+#---------------------------------------------------------
+#
+# MAIN PROGRAM FUNCTIONS
+# 
+#---------------------------------------------------------
+
+
+
+
+
+
+# global variables
+ZONE_TRESHOLD = 220 # threshold for detecting if the robot is out of the zone based on distance changes, in mm
+last_color_left = "white"
+last_color_right = "white"
+
+# initialization of the hub with all the ports and constants
+hub = Hub(
+    forward_color_port= port.A, # port for the forward facing color sensor, used for line following
+    left_color_port= port.D, # port for the left facing color sensor, used for line following
+    right_color_port= port.C,   # port for the right facing color sensor, used for line following
+    left_motor_port= port.F, # port for the left motor, used for driving and turning
+    right_motor_port= port.E, # port for the right motor, used for driving and turning
+    forward_distance_port= port.B, # port for the forward facing distance sensor, used for obstacle detection
+    obstacle_distance= 100, # how close an obstacle has to be to be detected, in mm
+    wheel_diameter= 5.2, # in cm
+    default_reflection_treshold= 50, # value between the reflection values of black and white surfaces, used for distinguishing between them
+    silver_threshold= 1017, # threshold for detecting silver surfaces, used for zone handling
+    speed_straight_forward= 340, # speed for driving straight forward
+    speed_turn_high= 340, # speed for the faster motor when turning
+    speed_turn_low= 120, # speed for the slower motor when turning
+    speed_slow= 160 # speed for slow movements, e.g. for some turns or for driving in the zone
+)
+
 
 def update_last_colors():
-    """ Checks and updates the last seen color of the left and right color sensors. """
+
+    """ Saves the last color the sensors saw in order to detect changes and turns"""
+
     global last_color_right
     global last_color_left
     #save the last color the right sensor sees
-    if (color_is_black(rc) and (last_color_right != "black") and last_color_right != "green" and not color_is_green(rc)):
+    if (hub.color_is_black(hub.right_color_port) and (last_color_right != "black") and last_color_right != "green"): 
         last_color_right = "black"
-    if (color_is_white(rc) and (last_color_right != "white") and not color_is_green(rc)):
+    if (hub.color_is_white(hub.right_color_port) and (last_color_right != "white")):
         last_color_right = "white"
-    if (last_color_right != "green") and color_is_green(rc):
+    if (last_color_right != "green") and hub.color_is_green(hub.right_color_port):
         print("saved green")
         last_color_right = "green"
 
     #save the last color the left sensor sees
-    if (color_is_black(lc) and (last_color_left != "black") and last_color_left != "green" and not color_is_green(lc)):
+    if (hub.color_is_black(hub.left_color_port) and (last_color_left != "black") and last_color_left != "green"): 
         last_color_left = "black"
-    if (color_is_white(lc) and (last_color_left != "white") and not color_is_green(lc)):
+    if (hub.color_is_white(hub.left_color_port) and (last_color_left != "white")):
         last_color_left = "white"
-    if ((last_color_left != "green") and color_is_green(lc)):
+    if ((last_color_left != "green") and hub.color_is_green(hub.left_color_port)):
         print("saved green")
         last_color_left = "green"
 
+
 async def check_for_turns():
+
     """
     Checks for any green markings on the ground and lets the robot turn in the right direction if they follow up to white
 
     Attention: Requires the updateLastColor() function to be run in immediate advance in order to work properly
     """
+
     global last_color_left
     global last_color_right
-    #check colors on the ground in case there is a turn
-    if color_is_green(lc) and color_is_green(rc):
+    #check colors on the ground in case there is a u turn
+    if hub.color_is_green(hub.left_color_port) and hub.color_is_green(hub.right_color_port):
         print("did a full turn")
-        light_matrix.show_image(ARROW_BACK)
+        hub.show_image("arrow_back")
         last_color_right = "green"
         last_color_left = "green"
-        set_motors_turn_right()
-        sleep(TURN_180_TIME)
-        set_motors_straight_forward()
+        await hub.rotate_degrees(180)
+        hub.set_motors_straight_forward()
         sleep(0.2)
-        set_motors_turn_right()
-        light_matrix.show_image(ARROW_FRONT)
+        hub.set_motors_turn_right()
+        hub.show_image("arrow_front")
 
     #turn right if black follows to green
-    if color_is_black(rc) and last_color_right == "green" and not color_is_green(rc):
+    if hub.color_is_black(hub.right_color_port) and last_color_right == "green":
             print("turned right")
-            light_matrix.show_image(ARROW_RIGHT)
-            await drive_straight(8)
-            await rotate_degrees(-15, SPEED_SLOW)
-            await rotate_degrees(-75, SPEED_SLOW, True)
-            # set_motors_turn_right()
-            # sleep(TURN_TIME)
-            # set_motors_straight_forward()
-            # sleep(0.3)
+            hub.show_image("arrow_right")
+            await hub.drive_straight(8)
+            await hub.rotate_degrees(-15, hub.speed_slow)
+            await hub.rotate_degrees(-75, hub.speed_slow, True)
             last_color_right = "black"
-            light_matrix.show_image(ARROW_FRONT)
+            hub.show_image("arrow_front")
         
     #turn right if black follows to green
-    if color_is_black(lc) and last_color_left == "green" and not color_is_green(lc):
+    if hub.color_is_black(hub.left_color_port) and last_color_left == "green":
             print("turned left")
-            light_matrix.show_image(ARROW_LEFT)
-            await drive_straight(8)
-            await rotate_degrees(15, SPEED_SLOW)
-            await rotate_degrees(75, SPEED_SLOW, True)
-            # set_motors_turn_left()
-            # sleep(TURN_TIME)
-            # set_motors_straight_forward()
-            # sleep(0.3)
+            hub.show_image("arrow_left")
+            await hub.drive_straight(8)
+            await hub.rotate_degrees(15, hub.speed_slow)
+            await hub.rotate_degrees(75, hub.speed_slow, True)
             last_color_left = "black"
-            light_matrix.show_image(ARROW_FRONT)
+            hub.show_image("arrow_front")
 
 async def check_for_obstacles():
-    """ Checks if there are obstacles in front of the robot and maneuvers around. """
-    count = 3
 
-    if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
+    """ Checks for obstacles in front of the robot and tries to drive around them by checking for free paths on the sides and going there,
+      if there is no free path it tries to go back and turn and check again until it finds a way around the obstacle or gives up after 3 tries"""
+    
+    tries = 3
+
+    if hub.distance_in_mm() < hub.obstacle_distance and hub.distance_in_mm() != -1:
         #wait for a short time to make sure its not a false positive
         sleep(0.2)
-        if distance_sensor.distance(fd) < OBSTACLE_DISTANCE and distance_sensor.distance(fd) != -1:
+        if hub.distance_in_mm() < hub.obstacle_distance and hub.distance_in_mm() != -1:
             print("obstacle detected")
-            light_matrix.show_image(light_matrix.IMAGE_SQUARE)
-            await rotate_degrees(-90, SPEED_SLOW)
-            await drive_straight(25, SPEED_SLOW)
-            await rotate_degrees(90, SPEED_SLOW)
+            hub.show_image("square")
+            await hub.rotate_degrees(-90, hub.speed_slow)
+            await hub.drive_straight(25, hub.speed_slow)
+            await hub.rotate_degrees(90, hub.speed_slow)
             while True:
-                if await drive_straight(45, SPEED_SLOW, True):
+                if await hub.drive_straight(45, hub.speed_slow, True):
                     break
-                await rotate_degrees(90, SPEED_SLOW)
-                count -= 1
-                if count == 0:
-                    set_motors_straight_forward()
+                await hub.rotate_degrees(90, hub.speed_slow)
+                tries -= 1
+                if tries == 0:
+                    hub.set_motors_straight_forward()
                     break
-            await rotate_degrees(-15)
-            light_matrix.show_image(ARROW_FRONT)
+            await hub.rotate_degrees(-15)
+            hub.show_image("arrow_front")
 
 async def check_for_zone():
+
+    """
+    Checks if the robot is entering the zone by looking for silver on the ground and then uses the distance sensor to confirm it and to navigate inside the zone.
+    The navigation is done by a slow turn while checking if the ditance increases significantly, if so, it means that there is an exit.
+    """
+
     global ZONE_TRESHOLD
     global previous_distance
-    """Checks if entered the zone and tries to escape it"""
-    if color_is_silver(fc) and distance_sensor.distance(fd) > 500:
-        print("distance and color from zone:", distance_sensor.distance(fd))
-        light_matrix.show_image(light_matrix.IMAGE_DIAMOND)
-        await drive_straight(1)
+    if hub.color_is_silver() and hub.distance_in_mm() > 500:
+        print("distance and color from zone:", hub.distance_in_mm())
+        hub.show_image("diamond")
+        await hub.drive_straight(1)
         sleep(0.5)
-        await drive_straight(1)
-        if color_is_silver(rc):
-            if color_is_white(fc) and color_is_white(rc) and color_is_white(lc):
+        await hub.drive_straight(1)
+        if hub.color_is_silver(hub.right_color_port):
+            if hub.color_is_white(hub.forward_color_port) and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
                 print("entered zone")
-                await drive_straight(10)
-                await rotate_degrees(10)
-                await drive_straight(20)
-                await rotate_degrees(-90)
+                await hub.drive_straight(10)
+                await hub.rotate_degrees(10)
+                await hub.drive_straight(20)
+                await hub.rotate_degrees(-90)
                 while True:
-                    reading = distance_sensor.distance(fd)
+                    reading = hub.distance_in_mm()
                     if reading > previous_distance + ZONE_TRESHOLD:
-                        await rotate_degrees(8)
-                        if await drive_straight(55, SPEED_SLOW, True):
+                        await hub.rotate_degrees(8)
+                        if await hub.drive_straight(55, hub.speed_slow, True):
                             break
                     previous_distance = reading
-                    await rotate_degrees(2, SPEED_SLOW)
+                    await hub.rotate_degrees(2, hub.speed_slow)
         else:
-            light_matrix.show_image(ARROW_FRONT)
+            hub.show_image("arrow_front")
 
 async def correct_line_path():
+
     """
     Corrects the current path of the robot to continue following the black line
 
@@ -337,49 +539,31 @@ async def correct_line_path():
     """
 
     #drive straight forward wenn forward color is black
-    if (color_is_black(fc)) and color_is_white(rc) and color_is_white(lc):
-        set_motors_straight_forward()
+    if hub.color_is_white(hub.forward_color_port) and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
+        hub.set_motors_straight_forward()
     else:
-        #turn left if left color is black
-        if (color_is_black(lc)):
-            set_motors_turn_left()
-           #turn right if right color is black
-        if (color_is_black(rc)):
-            set_motors_turn_right()
-        #drive forward to cross the goal line and the quit the program if forward color is red
-        if (color_sensor.color(fc) == color.RED):
-            await drive_straight(2)
-            exit()
-
-def update_calibration():
-    """updates the current calibration values based on new data from sensors"""
-    global white_reflection
-    global black_reflection
-    global reflection_treshold
-    for sensor in [fc, rc, lc]:
-        #take multiple reading to smooth spikes
-        readings = [color_sensor.reflection(sensor) for _ in range(5)]
-        value = sum(readings) / len(readings)
-
-        #ignore invalid reading
-        if value < CALIBRATION_MIN_VALID:
-            continue
-        #update white if higher
-        if value > white_reflection:
-            white_reflection = value
-            #print("updated white reflection to: ", white_reflection)
-        #update black if lower
-        if value < black_reflection:
-            black_reflection = value
-            #print("updated black reflection to: ", black_reflection)
-    reflection_treshold = (white_reflection + black_reflection) / 2
+        if (hub.color_is_black()):# and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
+            hub.set_motors_straight_forward()
+        else:
+            #turn left if left color is black
+            if (hub.color_is_black(hub.left_color_port)):
+                hub.set_motors_turn_left()
+            #turn right if right color is black
+            if (hub.color_is_black(hub.right_color_port)):
+                hub.set_motors_turn_right()
+            #drive forward to cross the goal line and the quit the program if forward color is red
+            if hub.color_is_red():
+                #sleep for a short time to make sure its not a false positive
+                sleep(0.2)
+                if hub.color_is_red():
+                    await hub.drive_straight(2)
+                    raise SystemExit("Goal reached")
 
 async def main():
-    #Linefollower workcycle and main function
-    light_matrix.show_image(ARROW_FRONT)
-    set_motors_straight_forward()
+    """Main function"""
+    hub.show_image("arrow_front")
+    hub.set_motors_straight_forward()
     while True:
-        update_calibration()
         update_last_colors()
         await check_for_turns()
         await check_for_zone()
@@ -387,4 +571,3 @@ async def main():
         await correct_line_path()
 
 runloop.run(main())
-

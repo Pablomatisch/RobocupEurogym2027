@@ -7,17 +7,17 @@ from time import sleep
 
 #define ports for better overview
 #forward color
-fc = port.B
+fc = port.A
 #left color
-lc = port.E
+lc = port.D
 #right color
-rc = port.F
+rc = port.C
 #left motor
-lm = port.A
+lm = port.F
 #right motor
-rm = port.D
+rm = port.E
 #forward distance (sensor)
-fd = port.C
+fd = port.B
 
 #values for calibrating color sensors
 CALIBRATION_MIN_VALID = 3
@@ -81,7 +81,7 @@ def stop_motors():
     motor.stop(lm)
     motor.stop(rm)
 
-def set_motors_straight_forward(velocity:float = SPEED_STRAIGHT_FORWARD):
+def set_motors_straight_forward(velocity:int = SPEED_STRAIGHT_FORWARD):
     """
     Sets the motors to drive straight ahead using the motor module
 
