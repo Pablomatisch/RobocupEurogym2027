@@ -539,25 +539,23 @@ async def correct_line_path():
     """
 
     #drive straight forward wenn forward color is black
-    if hub.color_is_white(hub.forward_color_port) and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
+
+    if (hub.color_is_black()):# and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
         hub.set_motors_straight_forward()
     else:
-        if (hub.color_is_black()):# and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
-            hub.set_motors_straight_forward()
-        else:
-            #turn left if left color is black
-            if (hub.color_is_black(hub.left_color_port)):
-                hub.set_motors_turn_left()
-            #turn right if right color is black
-            if (hub.color_is_black(hub.right_color_port)):
-                hub.set_motors_turn_right()
-            #drive forward to cross the goal line and the quit the program if forward color is red
+        #turn left if left color is black
+        if (hub.color_is_black(hub.left_color_port)):
+            hub.set_motors_turn_left()
+        #turn right if right color is black
+        if (hub.color_is_black(hub.right_color_port)):
+            hub.set_motors_turn_right()
+        #drive forward to cross the goal line and the quit the program if forward color is red
+        if hub.color_is_red():
+            #sleep for a short time to make sure its not a false positive
+            sleep(0.2)
             if hub.color_is_red():
-                #sleep for a short time to make sure its not a false positive
-                sleep(0.2)
-                if hub.color_is_red():
-                    await hub.drive_straight(2)
-                    raise SystemExit("Goal reached")
+                await hub.drive_straight(2)
+                raise SystemExit("Goal reached")
 
 async def main():
     """Main function"""
