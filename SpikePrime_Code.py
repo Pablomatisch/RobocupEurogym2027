@@ -351,6 +351,7 @@ class Hub:
         if (rotate_degrees < 0):
             steer = -steer
         rotated_degrees = 0
+        previous_yaw = motion_sensor.tilt_angles()[0] * 0.1
 
         while abs(rotate_degrees) > rotated_degrees:
             if stop_at_black:
@@ -358,7 +359,14 @@ class Hub:
                     motor_pair.stop(motor_pair.PAIR_1)
                     return True
             motor_pair.move(motor_pair.PAIR_1, steer, velocity=velocity)
-            rotated_degrees = abs(motion_sensor.tilt_angles()[0]*0.1)
+            current_yaw = motion_sensor.tilt_angles()[0] * 0.1
+            yaw_delta = current_yaw - previous_yaw
+            if yaw_delta > 180:
+                yaw_delta -= 360
+            elif yaw_delta < -180:
+                yaw_delta += 360
+            rotated_degrees += abs(yaw_delta)
+            previous_yaw = current_yaw
         print("rotated", rotate_degrees, "degrees")
         motor_pair.stop(motor_pair.PAIR_1)
         return False
