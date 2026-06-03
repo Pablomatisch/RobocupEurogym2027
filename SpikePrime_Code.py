@@ -131,8 +131,8 @@ class Hub:
 
         port = port or self.forward_color_port
         default_reflection_treshold = default_reflection_treshold or self.default_reflection_treshold
-        return (color_sensor.reflection(port) < default_reflection_treshold and not self.color_is_green(port))
-
+        return (color_sensor.reflection(port) < default_reflection_treshold and not self.color_is_green(port) and not self.color_is_silver(port))
+    
 
     def color_is_white(self, port = None, default_reflection_treshold = None):
 
@@ -145,7 +145,7 @@ class Hub:
 
         port = port or self.forward_color_port
         default_reflection_treshold = default_reflection_treshold or self.default_reflection_treshold
-        return (color_sensor.reflection(port) > default_reflection_treshold and not self.color_is_green(port))
+        return (color_sensor.reflection(port) > default_reflection_treshold and not self.color_is_green(port) and not self.color_is_silver(port))
 
 
     def color_is_green(self, port = None):
@@ -160,11 +160,11 @@ class Hub:
         r, g, b, intensity = color_sensor.rgbi(port)
 
         # avoid black / very dark readings
-        if intensity < 300:
+        if intensity < 220:
             return False
 
         #check if green is greater than red
-        if g > r * 1.05 and g >= b * 1.005:
+        if g > r * 1.008 and g >= b * 1.0008:
             return True
 
         return False
@@ -319,7 +319,7 @@ class Hub:
 
         while moved_degrees < target_degrees:
             if stop_at_black:
-                if self.color_is_black() or self.color_is_black(self.right_color_port) or self.color_is_black(self.left_color_port):
+                if self.color_is_black() or self.color_is_black(self.right_color_port) or self.color_is_black(self.left_color_port) or self.color_is_silver():
                     motor_pair.stop(motor_pair.PAIR_1)
                     return True
             # SPIKE 3: tilt_angles()[0] gives yaw in deci-degrees with inverted sign
@@ -392,6 +392,7 @@ class Hub:
 ZONE_TRESHOLD = 220 # threshold for detecting if the robot is out of the zone based on distance changes, in mm
 last_color_left = "white"
 last_color_right = "white"
+previous_distance = 0 # used for zone handling
 
 # initialization of the hub with all the ports and constants
 hub = Hub(
@@ -403,8 +404,8 @@ hub = Hub(
     forward_distance_port= port.B, # port for the forward facing distance sensor, used for obstacle detection
     obstacle_distance= 100, # how close an obstacle has to be to be detected, in mm
     wheel_diameter= 5.2, # in cm
-    default_reflection_treshold= 50, # value between the reflection values of black and white surfaces, used for distinguishing between them
-    silver_threshold= 1017, # threshold for detecting silver surfaces, used for zone handling
+    default_reflection_treshold= 70, # value between the reflection values of black and white surfaces, used for distinguishing between them
+    silver_threshold= 885, # threshold for detecting silver surfaces, used for zone handling
     speed_straight_forward= 300, # speed for driving straight forward
     speed_turn_high= 340, # speed for the faster motor when turning
     speed_turn_low= 120, # speed for the slower motor when turning
@@ -514,29 +515,20 @@ async def check_for_zone():
 
     global ZONE_TRESHOLD
     global previous_distance
-    if hub.color_is_silver() and hub.distance_in_mm() > 500:
+    if hub.color_is_silver() and hub.distance_in_mm() > 300:
         print("distance and color from zone:", hub.distance_in_mm())
         hub.show_image("diamond")
-        await hub.drive_straight(1)
-        sleep(0.5)
-        await hub.drive_straight(1)
-        if hub.color_is_silver(hub.right_color_port):
-            if hub.color_is_white(hub.forward_color_port) and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
-                print("entered zone")
-                await hub.drive_straight(10)
-                await hub.rotate_degrees(10)
-                await hub.drive_straight(20)
-                await hub.rotate_degrees(-90)
-                while True:
-                    reading = hub.distance_in_mm()
-                    if reading > previous_distance + ZONE_TRESHOLD:
-                        await hub.rotate_degrees(8)
-                        if await hub.drive_straight(55, velocity=hub.speed_slow, stop_at_black=True):
-                            break
-                    previous_distance = reading
-                    await hub.rotate_degrees(2, velocity=hub.speed_slow)
-        else:
-            hub.show_image("arrow_front")
+        print("entered zone")
+        await hub.drive_straight(30)
+        await hub.rotate_degrees(-90)
+        while True:
+            reading = hub.distance_in_mm()
+            if reading > previous_distance + ZONE_TRESHOLD:
+                await hub.rotate_degrees(8)
+                if await hub.drive_straight(30, velocity=hub.speed_slow, stop_at_black=True):
+                    break
+            previous_distance = reading
+            await hub.rotate_degrees(2, velocity=hub.speed_slow)
 
 async def correct_line_path():
 
@@ -545,21 +537,24 @@ async def correct_line_path():
 
     Also handles the end of the course
     """
-    #if everyting white, straight in case of brake 
+
+    #if everyting white, drive back and forth for checking line status in case of brake or lost line
     if (hub.color_is_white() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
-        sleep(0.2)
+        sleep(0.1)
         if (hub.color_is_white() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
             await hub.drive_straight(-4)
             if (hub.color_is_black() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
-                await hub.drive_straight(2)
+                await hub.drive_straight(3)
+                """ intended for 90° turn but didnt work well          
                 if hub.color_is_black(hub.left_color_port):
                     hub.show_image("arrow_left")
                     await hub.rotate_degrees(90, stop_at_black=True)
                 elif hub.color_is_black(hub.right_color_port):
                     hub.show_image("arrow_right")
                     await hub.rotate_degrees(-90, stop_at_black=True)
-                else:
-                    await hub.drive_straight(35, stop_at_black=True)
+                else: 
+                """
+                await hub.drive_straight(35, stop_at_black=True)
                 hub.show_image("arrow_front")
 
         
@@ -586,8 +581,8 @@ async def main():
     hub.set_motors_straight_forward()
     while True:
         update_last_colors()
-        await check_for_turns()
         await check_for_zone()
+        await check_for_turns()
         await check_for_obstacles()
         await correct_line_path()
 
