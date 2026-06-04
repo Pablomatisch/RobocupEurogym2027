@@ -281,7 +281,7 @@ class Hub:
                              *,
                             velocity = None,
                             stop_at_black = None,
-                            stop_at_silver = None,
+                            ignore_silver = None,
                             wheel_diameter_cm = None,
                             kp = None):
         
@@ -295,6 +295,7 @@ class Hub:
             distance_cm (float): Distance to travel in cm.
             velocity (int): Motor speed in degrees per second.
             stop_at_black (bool): Defines if the function should stop when detecting a black line
+            stop_at_silver (bool): Defines if the function should stop when detecting a silver surface (default: true)
             wheel_diameter_cm (float): Wheel diameter in cm.
             kp (float): Proportional gain for gyro correction (default 2.0).
         """
@@ -319,7 +320,7 @@ class Hub:
         moved_degrees = 0
 
         while moved_degrees < target_degrees:
-            if (self.color_is_silver() or self.color_is_silver(self.right_color_port) or self.color_is_silver(self.left_color_port)) and stop_at_silver:
+            if (self.color_is_silver() or self.color_is_silver(self.right_color_port) or self.color_is_silver(self.left_color_port)) and ignore_silver:
                 motor_pair.stop(motor_pair.PAIR_1)
                 return False
             if stop_at_black:
@@ -396,7 +397,6 @@ class Hub:
 
 
 # global variables
-ZONE_TRESHOLD = 220 # threshold for detecting if the robot is out of the zone based on distance changes, in mm
 last_color_left = "white"
 last_color_right = "white"
 last_colors_left = ["white", "white", "white", "white", "white"] # uses 5 colors for better handling
@@ -540,7 +540,9 @@ async def check_for_obstacles():
                 if tries == 0:
                     hub.set_motors_straight_forward()
                     break
-            await hub.rotate_degrees(-15)
+            await hub.drive_straight(5)
+            await hub.rotate_degrees(-20)
+            await hub.rotate_degrees(-80, stop_at_black=True)
             hub.show_image("arrow_front")
 
 async def check_for_zone():
@@ -550,34 +552,48 @@ async def check_for_zone():
     The navigation is done by a slow turn while checking if the ditance increases significantly, if so, it means that there is an exit.
     """
 
-    global ZONE_TRESHOLD
     global previous_reading
+    global white_black_distinguishing
     if hub.color_is_silver() or hub.color_is_silver(hub.right_color_port) or hub.color_is_silver(hub.left_color_port):
         hub.show_image("diamond")
         print("entered zone")
+        await hub.drive_straight(20, ignore_silver=True)
+        await hub.rotate_degrees(30)
         await hub.drive_straight(20)
-        await hub.rotate_degrees(20)
-        await hub.drive_straight(10)
         await hub.rotate_degrees(-110)
         while True:
             # average reading of the distance sensor
             readings = []
-            for _ in range(5):
+            for _ in range(10):
                 readings.append(hub.distance_in_mm())
             reading = sum(readings) / len(readings)
+            print(reading)
 
-            if (reading > previous_reading + ZONE_TRESHOLD) or reading > 1800:
+            # save reading as previous when valid
+            if reading != -1:
+                            previous_reading = reading
+
+            # drives straight when new reading is 20% higher than previous
+            if (reading > previous_reading * 1.2) or reading > 1800 or reading == -1:
                 print("found exit with distance", reading)
                 await hub.rotate_degrees(10)
                 await hub.drive_straight(5)
-                if await hub.drive_straight(20, stop_at_black=True):
-                    if hub.color_is_black() or hub.color_is_black(hub.right_color_port) or hub.color_is_black(hub.left_color_port):
+                if reading == -1:
+                    if await hub.drive_straight(30, stop_at_black=True):
+                    # only exit zone program when really needed
+                        if hub.color_is_black(hub.forward_color_port, white_black_distinguishing) or hub.color_is_black(hub.right_color_port, white_black_distinguishing) or hub.color_is_black(hub.left_color_port, white_black_distinguishing):
+                            print("crossed line at exit")
+                            break
+                elif await hub.drive_straight(int(reading/10 - 50), stop_at_black=True):
+                    # only exit zone program when really needed
+                    if hub.color_is_black(hub.forward_color_port, white_black_distinguishing) or hub.color_is_black(hub.right_color_port, white_black_distinguishing) or hub.color_is_black(hub.left_color_port, white_black_distinguishing):
                         print("crossed line at exit")
                         break
                 await hub.rotate_degrees(-15)
-
-            previous_reading = reading
-            await hub.rotate_degrees(1, velocity=hub.speed_slow)
+                previous_reading = 1000 # reset so it doesnt just turn again
+            
+            await hub.rotate_degrees(1)
+    hub.show_image("arrow_front")
 
 async def correct_line_path():
 
