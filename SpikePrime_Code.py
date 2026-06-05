@@ -130,9 +130,16 @@ class Hub:
         """
 
         port = port or self.forward_color_port
-        default_reflection_treshold = default_reflection_treshold or self.default_reflection_treshold
-        return (color_sensor.reflection(port) < default_reflection_treshold and not self.color_is_green(port) and not self.color_is_silver(port) and not self.color_is_red(port))
     
+        if default_reflection_treshold is None:
+            default_reflection_treshold = self.default_reflection_treshold
+        else:
+            r, g , b, intensity = color_sensor.rgbi(port)
+            if intensity < default_reflection_treshold:
+                return True
+            else:
+                return False
+        return (color_sensor.reflection(port) < default_reflection_treshold and not self.color_is_green(port) and not self.color_is_silver(port) and not self.color_is_red(port))
 
     def color_is_white(self, port = None, default_reflection_treshold = None):
 
@@ -157,17 +164,33 @@ class Hub:
         """
 
         port = port or self.forward_color_port
-        r, g, b, intensity = color_sensor.rgbi(port)
+        # take 3 readings and average them to avoid false positives
+        r_total = 0
+        g_total = 0
+        b_total = 0
+        intensity_total = 0
+        for _ in range(3):
+            r, g, b, intensity = color_sensor.rgbi(port)
+            r_total += r
+            g_total += g
+            b_total += b
+            intensity_total += intensity
+
+        r = r_total / 3
+        g = g_total / 3
+        b = b_total / 3
+        intensity = intensity_total / 3
 
         # avoid black / very dark readings
-        if intensity < 210:
+        if intensity < 180:
             return False
 
         #check if green is greater than red
-        if g > r * 1.003 and g >= b * 1.0003:
+        if g > r * 1.0015 and g >= b * 1.000001:
             return True
 
         return False
+        
     
     def color_is_red(self, port = None):
 
@@ -202,6 +225,16 @@ class Hub:
         else:
             return False
 
+    def reflection(self, port = None):
+
+        """
+        Gets the reflection value from the color sensor on the given port.
+        Args:
+            port: the port of the color sensor to check (default: forward color sensor)
+        """
+
+        port = port or self.forward_color_port
+        return color_sensor.reflection(port)
 
 
     #---------------------------------------------------------
@@ -399,10 +432,8 @@ class Hub:
 # global variables
 last_color_left = "white"
 last_color_right = "white"
-last_colors_left = ["white", "white", "white", "white", "white"] # uses 5 colors for better handling
-last_colors_right = ["white", "white", "white", "white", "white"] # uses 5 colors for better handling
 previous_reading = 1000 # used for zone handling
-white_black_distinguishing = 27 # for stricter handling
+white_black_distinguishing = 200 # for stricter handling
 
 # initialization of the hub with all the ports and constants
 hub = Hub(
@@ -412,9 +443,9 @@ hub = Hub(
     left_motor_port= port.F, # port for the left motor, used for driving and turning
     right_motor_port= port.E, # port for the right motor, used for driving and turning
     forward_distance_port= port.B, # port for the forward facing distance sensor, used for obstacle detection
-    obstacle_distance= 100, # how close an obstacle has to be to be detected, in mm
+    obstacle_distance= 120, # how close an obstacle has to be to be detected, in mm
     wheel_diameter= 5.2, # in cm
-    default_reflection_treshold= 55, # value between the reflection values of black and white surfaces, used for distinguishing between them
+    default_reflection_treshold= 65, # value between the reflection values of black and white surfaces, used for distinguishing between them
     silver_threshold= 600, # threshold for detecting silver surfaces, used for zone handling
     speed_straight_forward= 300, # speed for driving straight forward
     speed_turn_high= 340, # speed for the faster motor when turning
@@ -430,41 +461,21 @@ def update_last_colors():
     global last_color_right
     global last_color_left
     #save the last colors the right sensor sees
-
-    if hub.color_is_black(hub.right_color_port, white_black_distinguishing): # and last_color_right != "green"
-        last_colors_right.pop(0)
-        last_colors_right.append("black")
-    elif hub.color_is_white(hub.right_color_port, white_black_distinguishing): 
-        last_colors_right.pop(0)
-        last_colors_right.append("white")
-    elif hub.color_is_green(hub.right_color_port):
-        last_colors_right.pop(0)
-        last_colors_right.append("green")
-    # saves the one value with appears most
-    if last_colors_right.count("black") >= 3:
+    if (hub.color_is_black(hub.right_color_port, white_black_distinguishing) and (last_color_right != "black")): 
         last_color_right = "black"
-    elif last_colors_right.count("white") >= 3:
+    if (hub.color_is_white(hub.right_color_port, white_black_distinguishing) and (last_color_right != "white")):
         last_color_right = "white"
-    elif last_colors_right.count("green") >= 3:
+    if (last_color_right != "green") and hub.color_is_green(hub.right_color_port):
+        print("saved green")
         last_color_right = "green"
 
-    #save the last colors the left sensor sees
-    if hub.color_is_black(hub.left_color_port, white_black_distinguishing): # and last_color_left != "green"
-        last_colors_left.pop(0)
-        last_colors_left.append("black")
-    elif hub.color_is_white(hub.left_color_port, white_black_distinguishing):
-        last_colors_left.pop(0)
-        last_colors_left.append("white")
-    elif hub.color_is_green(hub.left_color_port):
-        last_colors_left.pop(0)
-        last_colors_left.append("green")
-
-    # saves the one value with appears most
-    if last_colors_left.count("black") >= 3:
+    #save the last color the left sensor sees
+    if (hub.color_is_black(hub.left_color_port, white_black_distinguishing) and (last_color_left != "black")): 
         last_color_left = "black"
-    elif last_colors_left.count("white") >= 3:
+    if (hub.color_is_white(hub.left_color_port, white_black_distinguishing) and (last_color_left != "white")):
         last_color_left = "white"
-    elif last_colors_left.count("green") >= 3:
+    if ((last_color_left != "green") and hub.color_is_green(hub.left_color_port)):
+        print("saved green")
         last_color_left = "green"
 
 
@@ -495,25 +506,27 @@ async def check_for_turns():
 
     #turn right if black follows to green
     if hub.color_is_black(hub.right_color_port, white_black_distinguishing) and last_color_right == "green":
-            print("turned right")
-            hub.show_image("arrow_right")
-            await hub.drive_straight(8)
-            await hub.rotate_degrees(-25)
-            await hub.rotate_degrees(-75, stop_at_black=True)
-            last_color_right = "black"
-            last_colors_right = ["black", "black", "black", "black", "black"]
+            
+            await hub.rotate_degrees(-12)
+            if hub.color_is_black(hub.right_color_port):
+                print("turned right")
+                hub.show_image("arrow_right")
+                await hub.drive_straight(9)
+                await hub.rotate_degrees(-25)
+                await hub.rotate_degrees(-75, stop_at_black=True)
+                last_color_right = "black"
             hub.show_image("arrow_front")
     #turn right if black follows to green
     if hub.color_is_black(hub.left_color_port, white_black_distinguishing) and last_color_left == "green":
-            print("turned left")
-            hub.show_image("arrow_left")
-            await hub.drive_straight(8)
-            await hub.rotate_degrees(25)
-            await hub.rotate_degrees(75, stop_at_black=True)
-            last_color_left = "black"
-            last_colors_left = ["black", "black", "black", "black", "black"]
+            await hub.rotate_degrees(12)
+            if hub.color_is_black(hub.left_color_port):
+                hub.show_image("arrow_left")
+                print("turned left")
+                await hub.drive_straight(9)
+                await hub.rotate_degrees(25)
+                await hub.rotate_degrees(75, stop_at_black=True)
+                last_color_left = "black"
             hub.show_image("arrow_front")
-
 async def check_for_obstacles():
 
     """ Checks for obstacles in front of the robot and tries to drive around them by checking for free paths on the sides and going there,
@@ -559,7 +572,7 @@ async def check_for_zone():
         print("entered zone")
         await hub.drive_straight(20, ignore_silver=True)
         await hub.rotate_degrees(30)
-        await hub.drive_straight(20)
+        await hub.drive_straight(60)
         await hub.rotate_degrees(-110)
         while True:
             # average reading of the distance sensor
@@ -574,7 +587,7 @@ async def check_for_zone():
                             previous_reading = reading
 
             # drives straight when new reading is 20% higher than previous
-            if (reading > previous_reading * 1.2) or reading > 1800 or reading == -1:
+            if (reading > previous_reading * 1.1) or reading > 1800 or reading == -1:
                 print("found exit with distance", reading)
                 await hub.rotate_degrees(10)
                 await hub.drive_straight(5)
@@ -606,7 +619,7 @@ async def correct_line_path():
     
 
         
-    if (hub.color_is_black()):# and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
+    if (hub.color_is_black(hub.forward_color_port)):# and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port):
         hub.set_motors_straight_forward()
     else:
         #turn left if left color is black
@@ -626,21 +639,23 @@ async def correct_line_path():
     if (hub.color_is_white() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
         sleep(0.1)
         if (hub.color_is_white() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
-            await hub.drive_straight(-4)
-            if (hub.color_is_black() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
-                await hub.drive_straight(5)
+            await hub.drive_straight(-5)
+            if (hub.color_is_black(hub.forward_color_port) and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
+                await hub.drive_straight(8)
                 await hub.drive_straight(30, stop_at_black=True)
                 hub.show_image("arrow_front")
+        else:
+            hub.set_motors_straight_forward()
 
 async def main():
     """Main function"""
     hub.show_image("arrow_front")
     hub.set_motors_straight_forward()
     while True:
-        update_last_colors()
         await check_for_zone()
         await check_for_turns()
         await check_for_obstacles()
         await correct_line_path()
+        update_last_colors()
 
 runloop.run(main())
