@@ -2,3 +2,6 @@
 
 # Spike Prime Extension Related
 *.assembled.py
+
+# vscode
+.vscode

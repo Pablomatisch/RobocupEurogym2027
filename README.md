@@ -1,9 +1,7 @@
-# RobocupEurobot2026
-RoboCup Junior Competition 2026
-## Program File
-"Linefollower Robocup_old.llsp3" was created with SPIKE Education Program.
-We switched to Visual Studio Code with a dedicated Python file as soon as the Lego Spike Prime Extension from Peter Staev was available.
-The current program files are available as .py files
-## Constrution File
-"Roboter Model echt.io" can be edited with Studio2.0 a CAD program for LEGO part based design.
+# RobocupEurobot2027
+
+RoboCup Junior Competition 2027 Files from Eurobot
+
+## Previous competitions
+We also participated in the RoboCup Junior Competition in 2026, you can view the files from there in the 2026 branch or on our old repo [RobocupEurobot2026] (https://github.com/eurogym/RobocupEurobot2026)
 
