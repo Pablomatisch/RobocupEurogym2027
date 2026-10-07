@@ -164,7 +164,7 @@ class Hub:
         """
 
         port = port or self.forward_color_port
-        # take 3 readings and average them to avoid false positives
+        """# take 3 readings and average them to avoid false positives
         r_total = 0
         g_total = 0
         b_total = 0
@@ -187,9 +187,10 @@ class Hub:
 
         #check if green is greater than red
         if g > r * 1.0015 and g >= b * 1.000001:
-            return True
+            print("detected green")
+            return True """
 
-        return False
+        return (color_sensor.color(port) == color.GREEN)
         
     
     def color_is_red(self, port = None):
@@ -242,6 +243,19 @@ class Hub:
     # HELPER FUNCTIONS FOR MOTORS
     #
     #---------------------------------------------------------
+    def start_motor(self, port, velocity = None):
+        """
+        Run a motor continuously at a constant velocity.
+        Args:
+            port: the port of the motor to run
+            velocity (int): Motor speed in degrees per second (default: SPEED_STRAIGHT_FORWARD)
+        """
+        velocity = velocity or self.speed_straight_forward
+        try:
+            motor.run(port, int(velocity))
+        except:
+            print("Error: No motor found on port")
+
 
 
     def stop_motors(self):
@@ -266,8 +280,8 @@ class Hub:
         """
         
         velocity = velocity or self.speed_straight_forward
-        motor.run(self.left_motor_port, -int(velocity))
-        motor.run(self.right_motor_port, int(velocity))
+        self.start_motor(self.left_motor_port, -int(velocity))
+        self.start_motor(self.right_motor_port, int(velocity))
 
 
     def set_motors_turn_right(self, high_velocity = None, low_velocity = None):
@@ -282,8 +296,8 @@ class Hub:
 
         high_velocity = high_velocity or self.speed_turn_high
         low_velocity = low_velocity or self.speed_turn_low
-        motor.run(self.left_motor_port, -(high_velocity))
-        motor.run(self.right_motor_port, -(low_velocity))
+        self.start_motor(self.left_motor_port, -(high_velocity))
+        self.start_motor(self.right_motor_port, -(low_velocity))
 
 
     def set_motors_turn_left(self, high_velocity = None, low_velocity = None):
@@ -298,8 +312,8 @@ class Hub:
 
         high_velocity = high_velocity or self.speed_turn_high
         low_velocity = low_velocity or self.speed_turn_low
-        motor.run(self.left_motor_port, low_velocity)
-        motor.run(self.right_motor_port, high_velocity)
+        self.start_motor(self.left_motor_port, low_velocity)
+        self.start_motor(self.right_motor_port, high_velocity)
 
 
 
@@ -463,18 +477,18 @@ def update_last_colors():
     #save the last colors the right sensor sees
     if (hub.color_is_black(hub.right_color_port, white_black_distinguishing) and (last_color_right != "black")): 
         last_color_right = "black"
-    if (hub.color_is_white(hub.right_color_port, white_black_distinguishing) and (last_color_right != "white")):
+    elif (hub.color_is_white(hub.right_color_port, white_black_distinguishing) and (last_color_right != "white")):
         last_color_right = "white"
-    if (last_color_right != "green") and hub.color_is_green(hub.right_color_port):
+    elif (last_color_right != "green") and hub.color_is_green(hub.right_color_port):
         print("saved green")
         last_color_right = "green"
 
     #save the last color the left sensor sees
     if (hub.color_is_black(hub.left_color_port, white_black_distinguishing) and (last_color_left != "black")): 
         last_color_left = "black"
-    if (hub.color_is_white(hub.left_color_port, white_black_distinguishing) and (last_color_left != "white")):
+    elif (hub.color_is_white(hub.left_color_port, white_black_distinguishing) and (last_color_left != "white")):
         last_color_left = "white"
-    if ((last_color_left != "green") and hub.color_is_green(hub.left_color_port)):
+    elif ((last_color_left != "green") and hub.color_is_green(hub.left_color_port)):
         print("saved green")
         last_color_left = "green"
 
@@ -506,7 +520,6 @@ async def check_for_turns():
 
     #turn right if black follows to green
     if hub.color_is_black(hub.right_color_port, white_black_distinguishing) and last_color_right == "green":
-            
             await hub.rotate_degrees(-12)
             if hub.color_is_black(hub.right_color_port):
                 print("turned right")
@@ -634,7 +647,7 @@ async def correct_line_path():
             sleep(0.2)
             if hub.color_is_red():
                 await hub.drive_straight(2)
-                raise SystemExit("Goal reached")
+                print("finished")
     #if everyting white, drive back and forth for checking line status in case of brake or lost line
     if (hub.color_is_white() and hub.color_is_white(hub.right_color_port) and hub.color_is_white(hub.left_color_port)):
         sleep(0.1)
