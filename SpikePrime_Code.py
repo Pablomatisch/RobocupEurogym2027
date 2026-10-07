@@ -380,7 +380,11 @@ class Hub:
             steer = int(max(-100, min(100, kp * error)))# Clamp steering between -100 and 100
 
             # move forward an set new steering correction
-            motor_pair.move(motor_pair.PAIR_1, steer, velocity=abs(velocity)*direction_forward_multiplicator)
+            try:
+                motor_pair.move(motor_pair.PAIR_1, steer, velocity=abs(velocity)*direction_forward_multiplicator)
+            except:
+                print("Error in motor_pair.move")
+                return False
             moved_degrees = abs(motor.relative_position(self.left_motor_port))
 
         motor_pair.stop(motor_pair.PAIR_1)
@@ -466,8 +470,6 @@ hub = Hub(
     speed_turn_low= 120, # speed for the slower motor when turning
     speed_slow= 160 # speed for slow movements, e.g. for some turns or for driving in the zone
 )
-
-
 def update_last_colors():
 
     """ Saves the last colors the sensors saw in order to detect changes and turns"""
